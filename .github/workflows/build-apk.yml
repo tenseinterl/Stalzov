@@ -30,86 +30,46 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
-      - name: Prepare Firebase google-services.json
-        env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+      - name: Prepare signing keystore
         run: |
-          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
-            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
-            echo "Restored app/google-services.json from GOOGLE_SERVICES_JSON secret."
-          elif [ -n "$GOOGLE_SERVICES_JSON_B64" ]; then
-            printf '%s' "$GOOGLE_SERVICES_JSON_B64" | base64 -d > app/google-services.json
-            echo "Restored app/google-services.json from GOOGLE_SERVICES_JSON_B64 secret."
-          elif [ ! -f app/google-services.json ]; then
-            echo "::warning::app/google-services.json is missing in this repo. Add GOOGLE_SERVICES_JSON secret in GitHub Settings for live Firebase Sign-In & Firestore."
-            cat << 'EOF' > app/google-services.json
-          {
-            "project_info": {
-              "project_number": "000000000000",
-              "project_id": "stalzone-ci-placeholder",
-              "storage_bucket": "stalzone-ci-placeholder.firebasestorage.app"
-            },
-            "client": [
-              {
-                "client_info": {
-                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
-                  "android_client_info": {
-                    "package_name": "com.aistudio.stalzone.xvkrzm"
-                  }
-                },
-                "oauth_client": [
-                  {
-                    "client_id": "000000000000-placeholder.apps.googleusercontent.com",
-                    "client_type": 3
-                  }
-                ],
-                "api_key": [
-                  {
-                    "current_key": "AIzaSyPlaceholderKeyForCiBuildOnly000000"
-                  }
-                ],
-                "services": {
-                  "appinvite_service": {
-                    "other_platform_oauth_client": [
-                      {
-                        "client_id": "000000000000-placeholder.apps.googleusercontent.com",
-                        "client_type": 3
-                      }
-                    ]
-                  }
-                }
-              }
-            ],
-            "configuration_version": "1"
-          }
-          EOF
+          if [ -f debug.keystore.base64 ]; then
+            tr -d '\r\n ' < debug.keystore.base64 | base64 -d > debug.keystore || rm -f debug.keystore
           fi
-
-      - name: Restore debug keystore for signing
-        run: |
-          if [ ! -f debug.keystore ]; then
-            if [ -f debug.keystore.base64 ]; then
-              base64 -d debug.keystore.base64 > debug.keystore
-              echo "Decoded debug.keystore from debug.keystore.base64 (matches Firebase SHA-1)."
-            else
-              keytool -genkeypair -v \
-                -keystore debug.keystore \
-                -storepass android \
-                -alias androiddebugkey \
-                -keypass android \
-                -keyalg RSA \
-                -keysize 2048 \
-                -validity 10000 \
-                -dname "CN=Android Debug,O=Android,C=US"
-            fi
+          if [ ! -f debug.keystore ] || ! keytool -list -keystore debug.keystore -storepass android >/dev/null 2>&1; then
+            rm -f debug.keystore
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=STALZONE,O=STALZONE,C=RU"
           fi
+          keytool -list -keystore debug.keystore -storepass android | head -n 10
 
       - name: Build Debug APK
         run: gradle :app:assembleDebug --no-daemon
 
-      - name: Prepare STALZONE.apk
-        run: cp app/build/outputs/apk/debug/app-debug.apk STALZONE.apk
+      - name: Align, sign (v1+v2+v3) and verify STALZONE.apk
+        run: |
+          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          echo "Using build-tools: $BUILD_TOOLS_DIR"
+          cp app/build/outputs/apk/debug/app-debug.apk STALZONE-raw.apk
+          "$BUILD_TOOLS_DIR/zipalign" -f -p 4 STALZONE-raw.apk STALZONE-aligned.apk
+          "$BUILD_TOOLS_DIR/apksigner" sign \
+            --ks debug.keystore \
+            --ks-key-alias androiddebugkey \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out STALZONE.apk \
+            STALZONE-aligned.apk
+          "$BUILD_TOOLS_DIR/apksigner" verify --verbose STALZONE.apk
+          ls -lh STALZONE.apk
 
       - name: Upload STALZONE.apk Artifact
         uses: actions/upload-artifact@v4
@@ -124,7 +84,7 @@ jobs:
           tag_name: latest-apk
           name: STALZONE Android APK (Latest)
           body: |
-            Автоматическая сборка **STALZONE** для Android.
+            Автоматическая подписанная сборка **STALZONE** для Android (v1 + v2 + v3 подпись проверена `apksigner`).
             Скачайте файл `STALZONE.apk` ниже и установите на телефон.
           files: STALZONE.apk
           make_latest: true

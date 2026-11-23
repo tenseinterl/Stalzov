@@ -161,7 +161,7 @@ window.GameUI = (function () {
       };
       $('btn-save-now').onclick = () => {
         this.game.save();
-        this.game.toast('✔ Прогресс сохранён локально и в облако!', 'good');
+        this.game.toast('✔ Прогресс сохранён в профиль!', 'good');
       };
       if ($('btn-sign-out')) {
         $('btn-sign-out').onclick = () => {

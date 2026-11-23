@@ -1,14 +1,24 @@
 <resources>
     <string name="app_name">STALZONE</string>
     <string name="loading_zone">ИНИЦИАЛИЗАЦИЯ ЗОНЫ ОТЧУЖДЕНИЯ...</string>
-    <string name="loading_sub">ПОДКЛЮЧЕНИЕ К ОНЛАЙН-СЕКТОРУ И ЗАГРУЗКА МИРА</string>
+    <string name="loading_sub">ЗАГРУЗКА МИРА И ПРОФИЛЯ СТАЛКЕРА</string>
     <string name="exit_dialog_title">ПОКИНУТЬ ЗОНУ?</string>
-    <string name="exit_dialog_message">Весь прогресс, схрон и снаряжение сохранены в облаке и на устройстве.</string>
+    <string name="exit_dialog_message">Весь прогресс, схрон и снаряжение сохранены в вашем профиле на устройстве.</string>
     <string name="exit_confirm">ВЫЙТИ</string>
     <string name="exit_cancel">ОСТАТЬСЯ</string>
-    <string name="auth_subtitle">ОНЛАЙН-СЕРВЕР ЗОНЫ • ОБЛАЧНЫЙ СХРОН</string>
-    <string name="auth_description">Войдите через Google, чтобы играть онлайн с другими сталкерами и бандитами, общаться по рации ПДА и сохранять прогресс в облаке.</string>
-    <string name="auth_google_button">ВОЙТИ ЧЕРЕЗ GOOGLE</string>
-    <string name="auth_connecting">ПОДКЛЮЧЕНИЕ К ЗОНЕ...</string>
-    <string name="auth_cloud_note">Сервер работает автоматически — настройка не требуется</string>
+    <string name="auth_subtitle">ДОСТУП В ЗОНУ • ЛИЧНЫЙ ПРОФИЛЬ СТАЛКЕРА</string>
+    <string name="auth_tab_login">ВХОД</string>
+    <string name="auth_tab_register">РЕГИСТРАЦИЯ</string>
+    <string name="auth_label_username">Логин (позывной)</string>
+    <string name="auth_placeholder_username">Например: Стрелок_01</string>
+    <string name="auth_label_password">Пароль</string>
+    <string name="auth_placeholder_password">Минимум 6 символов</string>
+    <string name="auth_label_confirm_password">Подтвердите пароль</string>
+    <string name="auth_placeholder_confirm_password">Повторите пароль</string>
+    <string name="auth_button_login">ВОЙТИ В ЗОНУ</string>
+    <string name="auth_button_register">СОЗДАТЬ АККАУНТ</string>
+    <string name="auth_connecting">ПРОВЕРКА ДОСТУПА...</string>
+    <string name="auth_footer_note">Аккаунт и прогресс хранятся локально в защищённой базе • Google-сервисы не требуются</string>
+    <string name="auth_toggle_password_show">Показать пароль</string>
+    <string name="auth_toggle_password_hide">Скрыть пароль</string>
 </resources>
