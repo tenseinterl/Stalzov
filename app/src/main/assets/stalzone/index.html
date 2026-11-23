@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>STALZONE — Voxel Extraction Shooter</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+
+  <!-- Post-processing tactical screen overlays -->
+  <div id="fx-bleed" class="screen-fx"></div>
+  <div id="fx-rad" class="screen-fx"></div>
+  <div id="fx-bio" class="screen-fx"></div>
+  <div id="fx-therm" class="screen-fx"></div>
+  <div id="fx-psy" class="screen-fx"></div>
+  <div id="fx-damage" class="screen-fx"></div>
+  <div id="fx-emission" class="screen-fx"></div>
+
+  <!-- Sniper / Optical Scope Overlay -->
+  <div id="scope-overlay" class="hidden">
+    <div class="scope-ring">
+      <div class="scope-h"></div>
+      <div class="scope-v"></div>
+      <div class="scope-dot"></div>
+      <div class="scope-range">PSO-1M // 4x</div>
+    </div>
+  </div>
+
+  <!-- START / DEPLOY OVERLAY -->
+  <div id="start-overlay">
+    <div class="start-card">
+      <div class="start-badge">ЧЕРНОБЫЛЬСКАЯ ЗОНА ОТЧУЖДЕНИЯ // СЕКТОР Х</div>
+      <h1 class="start-title">STAL<span>ZONE</span></h1>
+      <p class="start-desc">Воксельный PvPvE extraction-шутер. Выноси хабар из Зоны в Бар, избегай аномалий и Выброса, собирай артефакты и качай ветку бартера.</p>
+      <div class="start-features">
+        <span>⚡ 5 типов аномалий</span>
+        <span>☢ 4 шкалы заражений</span>
+        <span>📡 Радар 50м + ПДА</span>
+        <span>🔫 6 стволов + обвесы</span>
+        <span>⚒ Бартер и заточка +15</span>
+        <span>📱 Сенсор + ПК</span>
+      </div>
+      <div class="start-actions">
+        <button id="btn-deploy" class="btn-primary">ВОЙТИ В ЗОНУ</button>
+        <button id="btn-reset-save" class="btn-ghost">СБРОСИТЬ ПРОГРЕСС</button>
+      </div>
+      <div class="start-hint">Управление: Левый стик / WASD • Правый экран / Мышь • Огонь • Прицел • [F] Лут/NPC • [B] Болт • [G] Детектор • [Tab] Инвентарь • [M] ПДА</div>
+    </div>
+  </div>
+
+  <!-- MAIN TACTICAL HUD -->
+  <div id="hud" class="hidden">
+    <!-- TOP LEFT: RADAR + ZONE + EMISSION -->
+    <div id="hud-top-left">
+      <div class="radar-shell">
+        <canvas id="radar-canvas" width="128" height="128"></canvas>
+        <div id="radar-human-box" title="Люди в радиусе 50 м">
+          <span class="radar-icon">👤</span>
+          <span id="radar-human-count">0</span>
+        </div>
+        <div id="radar-zone-tag">БАР [СЕЙВ]</div>
+      </div>
+      <div id="safe-badge" class="status-pill safe">БЕЗОПАСНАЯ ЗОНА</div>
+      <div id="roof-badge" class="status-pill hidden">УКРЫТИЕ НАД ГОЛОВОЙ</div>
+      <div id="emission-banner" class="hidden">
+        <div class="em-title">⚠ ВЫБРОС ПРИБЛИЖАЕТСЯ</div>
+        <div id="emission-sub" class="em-sub">ИЩИТЕ УКРЫТИЕ ПОД КРЫШЕЙ!</div>
+      </div>
+      <div id="proto-banner" class="hidden">
+        <div class="proto-title">⚡ ПРОТОАНОМАЛИЯ</div>
+        <div class="proto-bar-bg"><div id="proto-bar-fill"></div></div>
+      </div>
+    </div>
+
+    <!-- TOP CENTER: COMPASS / NOTIFICATIONS -->
+    <div id="hud-top-center">
+      <div id="compass-bar">N</div>
+      <div id="toast-container"></div>
+    </div>
+
+    <!-- TOP RIGHT: CLOCK / MONEY / QUICK BUTTONS / KILLFEED -->
+    <div id="hud-top-right">
+      <div class="top-meta-bar">
+        <span id="hud-clock">12:00</span>
+        <span id="hud-weather">ПАСМУРНО</span>
+        <span id="hud-money" class="money-val">5 000 ₽</span>
+        <button id="btn-hud-pda" class="mini-hud-btn">ПДА [M]</button>
+        <button id="btn-hud-inv" class="mini-hud-btn">ИНВ [Tab]</button>
+        <button id="btn-hud-menu" class="mini-hud-btn">⚙</button>
+      </div>
+      <div id="killfeed"></div>
+    </div>
+
+    <!-- CENTER: CROSSHAIR, HITMARKER, INTERACT, RELOAD, DETECTOR -->
+    <div id="crosshair">
+      <div class="ch-line ch-top"></div>
+      <div class="ch-line ch-bottom"></div>
+      <div class="ch-line ch-left"></div>
+      <div class="ch-line ch-right"></div>
+      <div class="ch-dot"></div>
+    </div>
+    <div id="hitmarker" class="hidden">
+      <span class="hm-1"></span><span class="hm-2"></span>
+      <span class="hm-3"></span><span class="hm-4"></span>
+    </div>
+    <div id="reload-bar-wrap" class="hidden">
+      <div class="reload-label">ПЕРЕЗАРЯДКА...</div>
+      <div class="reload-track"><div id="reload-fill"></div></div>
+    </div>
+    <div id="detector-hud" class="hidden">
+      <div class="det-header">
+        <span id="det-name">САК-1</span>
+        <span id="det-mode">АРТЕФАКТЫ</span>
+      </div>
+      <div class="det-leds">
+        <span class="det-led"></span><span class="det-led"></span>
+        <span class="det-led"></span><span class="det-led"></span>
+        <span class="det-led"></span><span class="det-led"></span>
+      </div>
+      <div id="det-text">ПОИСК СИГНАЛА...</div>
+      <button id="btn-signal-scan" class="det-scan-btn">СКАН СИГНАЛА [X]</button>
+    </div>
+    <div id="interact-prompt" class="hidden">
+      <span class="key-cap">F</span>
+      <span id="interact-text">Взаимодействовать</span>
+    </div>
+
+    <!-- BOTTOM LEFT: HP, STAMINA, BLEED, 4 CONTAMINATIONS, WEIGHT -->
+    <div id="hud-bottom-left">
+      <div class="contam-row">
+        <div class="contam-chip rad" title="Радиация">
+          <span class="c-icon">☢</span>
+          <div class="c-bar"><div id="bar-rad"></div></div>
+          <span id="val-rad" class="c-val">0</span>
+        </div>
+        <div class="contam-chip bio" title="Биозаражение">
+          <span class="c-icon">☣</span>
+          <div class="c-bar"><div id="bar-bio"></div></div>
+          <span id="val-bio" class="c-val">0</span>
+        </div>
+        <div class="contam-chip therm" title="Термическое">
+          <span class="c-icon">🔥</span>
+          <div class="c-bar"><div id="bar-therm"></div></div>
+          <span id="val-therm" class="c-val">0</span>
+        </div>
+        <div class="contam-chip psy" title="Пси-излучение">
+          <span class="c-icon">🧠</span>
+          <div class="c-bar"><div id="bar-psy"></div></div>
+          <span id="val-psy" class="c-val">0</span>
+        </div>
+      </div>
+
+      <div class="vitals-panel">
+        <div class="vital-row">
+          <span class="vital-lbl">HP</span>
+          <div class="vital-track hp"><div id="bar-hp"></div></div>
+          <span id="val-hp" class="vital-num">100</span>
+          <span id="icon-bleed" class="bleed-icon hidden">🩸</span>
+        </div>
+        <div class="vital-row">
+          <span class="vital-lbl">СТ</span>
+          <div class="vital-track stam"><div id="bar-stam"></div></div>
+          <span id="val-weight" class="weight-num">12.4/45 кг</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOTTOM RIGHT: WEAPON, AMMO, QUICK SLOTS -->
+    <div id="hud-bottom-right">
+      <div class="quick-slots">
+        <button class="q-slot" data-slot="5"><span class="q-key">5</span><span class="q-ico">✚</span><span id="q-medkit" class="q-cnt">0</span></button>
+        <button class="q-slot" data-slot="6"><span class="q-key">6</span><span class="q-ico">🩹</span><span id="q-bandage" class="q-cnt">0</span></button>
+        <button class="q-slot" data-slot="7"><span class="q-key">7</span><span class="q-ico">💊</span><span id="q-antirad" class="q-cnt">0</span></button>
+        <button class="q-slot" data-slot="8"><span class="q-key">8</span><span class="q-ico">⚡</span><span id="q-energy" class="q-cnt">0</span></button>
+        <button class="q-slot" data-slot="9"><span class="q-key">9</span><span class="q-ico">💣</span><span id="q-grenade" class="q-cnt">0</span></button>
+      </div>
+      <div class="weapon-panel">
+        <div class="wpn-top">
+          <span id="hud-wpn-name">АК-74М</span>
+          <span id="hud-wpn-tier" class="wpn-badge">+0</span>
+        </div>
+        <div class="wpn-mid">
+          <span id="hud-ammo-mag" class="ammo-big">30</span>
+          <span class="ammo-sep">/</span>
+          <span id="hud-ammo-res" class="ammo-res">120</span>
+        </div>
+        <div class="wpn-bot">
+          <button id="btn-ammo-type" class="wpn-tag">ОБЫЧ [T]</button>
+          <button id="btn-fire-mode" class="wpn-tag">АВТО [V]</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MOBILE TOUCH CONTROLS -->
+    <div id="touch-controls" class="hidden">
+      <div id="touch-left-zone">
+        <div id="joystick-base">
+          <div id="joystick-knob"></div>
+        </div>
+        <div id="sprint-indicator">СПРИНТ</div>
+      </div>
+      <div id="touch-look-zone"></div>
+
+      <div id="touch-right-buttons">
+        <button id="tbtn-fire" class="t-btn t-fire">ОГОНЬ</button>
+        <button id="tbtn-ads" class="t-btn t-ads">ПРИЦЕЛ</button>
+        <button id="tbtn-reload" class="t-btn t-sm t-reload">R</button>
+        <button id="tbtn-jump" class="t-btn t-sm t-jump">▲</button>
+        <button id="tbtn-crouch" class="t-btn t-sm t-crouch">▼</button>
+        <button id="tbtn-interact" class="t-btn t-interact hidden">F • ВЗЯТЬ</button>
+      </div>
+
+      <div id="touch-utility-strip">
+        <button id="tbtn-wpn1" class="t-util">ОСН</button>
+        <button id="tbtn-wpn2" class="t-util">ПИСТ</button>
+        <button id="tbtn-bolt" class="t-util">БОЛТ</button>
+        <button id="tbtn-det" class="t-util">ДЕТ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: INVENTORY (TAB) -->
+  <div id="modal-inventory" class="modal hidden">
+    <div class="modal-window inv-window">
+      <div class="modal-header">
+        <div>
+          <h2>СНАРЯЖЕНИЕ И РЮКЗАК</h2>
+          <span class="modal-sub">Персональное не выпадает • Рюкзак выпадает в сумку при смерти</span>
+        </div>
+        <div class="modal-header-right">
+          <span id="inv-weight-label" class="pill-stat">0 / 45 кг</span>
+          <span id="inv-money-label" class="pill-stat amber">5 000 ₽</span>
+          <button class="btn-close-modal" data-close="modal-inventory">✕</button>
+        </div>
+      </div>
+      <div class="inv-grid-layout">
+        <div class="inv-col equip-col">
+          <h3>ПЕРСОНАЛЬНОЕ (ЗАЩИЩЕНО)</h3>
+          <div id="equip-slots-list" class="equip-list"></div>
+          <h3 class="mt-8">КОНТЕЙНЕР АРТЕФАКТОВ <span id="container-prot-label"></span></h3>
+          <div id="container-art-slots" class="art-slots"></div>
+          <h3 class="mt-8">ОБВЕСЫ ОРУЖИЯ</h3>
+          <div id="attachment-toggles" class="attach-row"></div>
+          <div id="player-stats-summary" class="stats-mini-box"></div>
+        </div>
+        <div class="inv-col bag-col">
+          <div class="col-head-row">
+            <h3>РЮКЗАК (ВЫПАДАЕТ В РЕЙДЕ)</h3>
+            <span id="bag-count-label" class="muted">0 предм.</span>
+          </div>
+          <div id="backpack-grid" class="item-grid"></div>
+        </div>
+        <div class="inv-col info-col">
+          <h3>ИНФОРМАЦИЯ</h3>
+          <div id="item-inspector" class="inspector-box">
+            <p class="muted">Выберите предмет для просмотра характеристик, экипировки, использования или сброса.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: PDA (M) -->
+  <div id="modal-pda" class="modal hidden">
+    <div class="modal-window pda-window">
+      <div class="modal-header">
+        <h2>ПДА «ЗОНОВИК-М»</h2>
+        <div class="pda-tabs">
+          <button class="pda-tab active" data-pda="map">КАРТА ЗОНЫ</button>
+          <button class="pda-tab" data-pda="quests">ЗАДАНИЯ</button>
+          <button class="pda-tab" data-pda="stats">СТАТИСТИКА</button>
+        </div>
+        <button class="btn-close-modal" data-close="modal-pda">✕</button>
+      </div>
+      <div id="pda-tab-map" class="pda-body">
+        <div class="pda-map-wrap">
+          <canvas id="pda-map-canvas" width="480" height="480"></canvas>
+        </div>
+        <div class="pda-legend">
+          <h3>ЛЕГЕНДА СЕКТОРА</h3>
+          <div class="leg-item"><span class="dot green"></span> База «Бар» (Сейв-зона, укрытие)</div>
+          <div class="leg-item"><span class="dot yellow"></span> Юг / Окраины (Болота, деревня — I тир)</div>
+          <div class="leg-item"><span class="dot red"></span> Север / Промзона и НИИ (II–III тир)</div>
+          <div class="leg-item"><span class="dot orange"></span> Логова мутантов</div>
+          <div class="leg-item"><span class="dot cyan"></span> Протоаномалии / Сигналы САК</div>
+          <div class="leg-item"><span class="dot purple"></span> Ваша Сумка с хабаром</div>
+          <hr class="sep" />
+          <div class="em-timer-box">
+            <div>До Выброса: <strong id="pda-em-timer">05:00</strong></div>
+            <button id="btn-trigger-emission" class="btn-small-warn">ТЕСТ ВЫБРОСА</button>
+          </div>
+          <div id="pda-coords" class="muted mt-8">Координаты: X 0 / Z 0</div>
+        </div>
+      </div>
+      <div id="pda-tab-quests" class="pda-body hidden">
+        <div id="pda-quests-list" class="quests-list"></div>
+      </div>
+      <div id="pda-tab-stats" class="pda-body hidden">
+        <div id="pda-stats-content" class="stats-panel"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: NPC / BAR SERVICES (TRADER, BARTER, MECHANIC, FENCE, STASH) -->
+  <div id="modal-npc" class="modal hidden">
+    <div class="modal-window npc-window">
+      <div class="modal-header">
+        <div>
+          <h2 id="npc-modal-title">ТОРГОВЕЦ</h2>
+          <span id="npc-modal-sub" class="modal-sub">База «Бар» — безопасный обмен</span>
+        </div>
+        <div class="modal-header-right">
+          <span id="npc-money-label" class="pill-stat amber">5 000 ₽</span>
+          <button class="btn-close-modal" data-close="modal-npc">✕</button>
+        </div>
+      </div>
+      <div id="npc-modal-body" class="npc-body"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: PAUSE / SETTINGS -->
+  <div id="modal-settings" class="modal hidden">
+    <div class="modal-window settings-window">
+      <div class="modal-header">
+        <h2>НАСТРОЙКИ СИСТЕМЫ</h2>
+        <button class="btn-close-modal" data-close="modal-settings">✕</button>
+      </div>
+      <div class="settings-body">
+        <label class="set-row">
+          <span>Чувствительность обзора (<strong id="sens-val">1.0</strong>)</span>
+          <input id="set-sens" type="range" min="0.3" max="2.5" step="0.1" value="1.0" />
+        </label>
+        <label class="set-row">
+          <span>Громкость звука (<strong id="vol-val">75%</strong>)</span>
+          <input id="set-vol" type="range" min="0" max="1" step="0.05" value="0.75" />
+        </label>
+        <label class="set-row check">
+          <span>Сенсорное управление на экране</span>
+          <input id="set-touch" type="checkbox" checked />
+        </label>
+        <div class="settings-actions">
+          <button id="btn-save-now" class="btn-primary">СОХРАНИТЬ СЕЙЧАС</button>
+          <button id="btn-respawn-bar" class="btn-ghost">ВЕРНУТЬСЯ В БАР</button>
+          <button id="btn-exit-game" class="btn-danger">ВЫЙТИ ИЗ ИГРЫ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: DEATH SCREEN -->
+  <div id="modal-death" class="modal hidden">
+    <div class="death-card">
+      <div class="death-skull">☠</div>
+      <h2>ВЫ ПОГИБЛИ В ЗОНЕ</h2>
+      <p id="death-reason">Смертельное ранение</p>
+      <div class="death-info">
+        <div>✔ Персональная экипировка, оружие и контейнер <strong>сохранены</strong>.</div>
+        <div>⚠ Хабар из рюкзака остался на месте смерти в <strong>«Сумке с хабаром»</strong> (отмечена на ПДА).</div>
+      </div>
+      <button id="btn-respawn" class="btn-primary">ВОЗРОДИТЬСЯ НА БАЗЕ «БАР»</button>
+    </div>
+  </div>
+
+  <script src="js/audio.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/engine3d.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

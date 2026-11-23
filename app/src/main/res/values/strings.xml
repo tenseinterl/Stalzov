@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">STALZONE</string>
+    <string name="loading_zone">ИНИЦИАЛИЗАЦИЯ ЗОНЫ ОТЧУЖДЕНИЯ...</string>
+    <string name="loading_sub">ЗАГРУЗКА ВОКСЕЛЬНОГО СЕКТОРА И ДЕТЕКТОРОВ</string>
+    <string name="exit_dialog_title">ПОКИНУТЬ ЗОНУ?</string>
+    <string name="exit_dialog_message">Весь прогресс, схрон и снаряжение сохранены автоматически.</string>
+    <string name="exit_confirm">ВЫЙТИ</string>
+    <string name="exit_cancel">ОСТАТЬСЯ</string>
+</resources>

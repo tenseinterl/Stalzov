@@ -1,0 +1,1270 @@
+// STALZONE Tactical HUD, Radar, PDA, Inventory, Bar NPCs & Mobile/Desktop Input Controller
+window.GameUI = (function () {
+  const $ = id => document.getElementById(id);
+
+  class UI {
+    constructor(game) {
+      this.game = game;
+      this.openModal = null; // 'modal-inventory' | 'modal-pda' | 'modal-npc' | 'modal-settings' | 'modal-death'
+      this.activeNpcId = null;
+      this.selectedBagId = null;
+      this.prevHumanCount = 0;
+      this.hitmarkerTimer = 0;
+      this.radarCtx = $('radar-canvas').getContext('2d');
+      this.pdaCtx = $('pda-map-canvas').getContext('2d');
+
+      // Unified input state (populated by both Keyboard/Mouse and Mobile Touch!)
+      this.input = {
+        moveX: 0, moveZ: 0,
+        sprint: false, crouch: false, jump: false,
+        fire: false, ads: false,
+        lookDX: 0, lookDY: 0
+      };
+      this.keys = {};
+      this.touchState = { joyId: null, joyOx: 0, joyOy: 0, lookId: null, lookX: 0, lookY: 0, fireId: null, fireX: 0, fireY: 0 };
+
+      this._bindDOM();
+      this._bindDesktopControls();
+      this._bindTouchControls();
+    }
+
+    _bindDOM() {
+      $('btn-deploy').onclick = () => {
+        window.SoundEngine.ensure();
+        window.SoundEngine.playUI();
+        $('start-overlay').classList.add('hidden');
+        $('hud').classList.remove('hidden');
+        this.game.started = true;
+        this.applySettingsUI();
+        this.game.toast('Добро пожаловать в Бар! Выйдите через ворота на Юг или Север.', 'good');
+      };
+
+      $('btn-reset-save').onclick = () => {
+        if (confirm('Сбросить весь прогресс, схрон и снаряжение?')) {
+          this.game.profile = window.GameData.resetProfile();
+          this.game.respawnAtBar(false);
+          this.game.toast('Прогресс сброшен.', 'good');
+        }
+      };
+
+      $('btn-hud-pda').onclick = () => this.toggleModal('modal-pda');
+      $('btn-hud-inv').onclick = () => this.toggleModal('modal-inventory');
+      $('btn-hud-menu').onclick = () => this.toggleModal('modal-settings');
+
+      document.querySelectorAll('.btn-close-modal').forEach(b => {
+        b.onclick = () => this.closeAllModals();
+      });
+
+      document.querySelectorAll('.pda-tab').forEach(btn => {
+        btn.onclick = () => {
+          window.SoundEngine.playUI();
+          document.querySelectorAll('.pda-tab').forEach(x => x.classList.remove('active'));
+          btn.classList.add('active');
+          const tab = btn.dataset.pda;
+          $('pda-tab-map').classList.toggle('hidden', tab !== 'map');
+          $('pda-tab-quests').classList.toggle('hidden', tab !== 'quests');
+          $('pda-tab-stats').classList.toggle('hidden', tab !== 'stats');
+          this.renderPDA();
+        };
+      });
+
+      $('btn-trigger-emission').onclick = () => {
+        this.closeAllModals();
+        this.game.entities.triggerEmissionNow(this.game);
+      };
+
+      $('btn-ammo-type').onclick = () => this.game.cycleAmmoType();
+      $('btn-fire-mode').onclick = () => this.game.toggleFireMode();
+      $('btn-signal-scan').onclick = () => this.game.entities.startSignalScan(this.game.player.x, this.game.player.z, this.game);
+      $('interact-prompt').onclick = () => this.game.interact();
+
+      document.querySelectorAll('.q-slot').forEach(btn => {
+        btn.onclick = () => this.game.useQuickSlot(Number(btn.dataset.slot));
+      });
+
+      // Settings controls
+      $('set-sens').oninput = e => {
+        this.game.profile.settings.sensitivity = parseFloat(e.target.value);
+        $('sens-val').textContent = this.game.profile.settings.sensitivity.toFixed(1);
+        this.game.save();
+      };
+      $('set-vol').oninput = e => {
+        const v = parseFloat(e.target.value);
+        this.game.profile.settings.volume = v;
+        $('vol-val').textContent = Math.round(v * 100) + '%';
+        window.SoundEngine.setVolume(v);
+        this.game.save();
+      };
+      $('set-touch').onchange = e => {
+        this.game.profile.settings.touchControls = e.target.checked;
+        this.applySettingsUI();
+        this.game.save();
+      };
+      $('btn-save-now').onclick = () => {
+        this.game.save();
+        this.game.toast('✔ Прогресс сохранён в localStorage!', 'good');
+      };
+      $('btn-respawn-bar').onclick = () => {
+        this.closeAllModals();
+        this.game.respawnAtBar(false);
+        this.game.toast('Вы вернулись на базу «Бар».', 'good');
+      };
+      $('btn-exit-game').onclick = () => {
+        this.game.save();
+        if (window.AndroidBridge && window.AndroidBridge.requestExit) {
+          window.AndroidBridge.requestExit();
+        } else {
+          this.closeAllModals();
+        }
+      };
+      $('btn-respawn').onclick = () => {
+        this.closeAllModals();
+        this.game.respawnAtBar(false);
+      };
+    }
+
+    applySettingsUI() {
+      const s = this.game.profile.settings;
+      $('set-sens').value = s.sensitivity;
+      $('sens-val').textContent = s.sensitivity.toFixed(1);
+      $('set-vol').value = s.volume;
+      $('vol-val').textContent = Math.round(s.volume * 100) + '%';
+      $('set-touch').checked = !!s.touchControls;
+      window.SoundEngine.setVolume(s.volume);
+      $('touch-controls').classList.toggle('hidden', !s.touchControls);
+    }
+
+    _bindDesktopControls() {
+      window.addEventListener('keydown', e => {
+        if (!this.game.started) return;
+        const code = e.code;
+        if (code === 'Tab') { e.preventDefault(); this.toggleModal('modal-inventory'); return; }
+        if (code === 'KeyM') { e.preventDefault(); this.toggleModal('modal-pda'); return; }
+        if (code === 'Escape') {
+          if (this.openModal) this.closeAllModals();
+          else this.toggleModal('modal-settings');
+          return;
+        }
+        if (this.openModal) return;
+
+        this.keys[code] = true;
+        if (code === 'KeyR') this.game.startReload();
+        if (code === 'KeyF') this.game.interact();
+        if (code === 'KeyB' || code === 'Digit4') this.game.throwBoltAction();
+        if (code === 'KeyG') this.game.toggleDetector();
+        if (code === 'KeyX' && this.game.player.holdingDetector) {
+          this.game.entities.startSignalScan(this.game.player.x, this.game.player.z, this.game);
+        }
+        if (code === 'KeyV') this.game.toggleFireMode();
+        if (code === 'KeyT') this.game.cycleAmmoType();
+        if (code === 'Digit1') this.game.selectWeaponSlot('primary');
+        if (code === 'Digit2') this.game.selectWeaponSlot('secondary');
+        if (code === 'Digit5') this.game.useQuickSlot(5);
+        if (code === 'Digit6') this.game.useQuickSlot(6);
+        if (code === 'Digit7') this.game.useQuickSlot(7);
+        if (code === 'Digit8') this.game.useQuickSlot(8);
+        if (code === 'Digit9') this.game.useQuickSlot(9);
+        if (code === 'KeyC' || code === 'ControlLeft') this.input.crouch = !this.input.crouch;
+      });
+
+      window.addEventListener('keyup', e => {
+        this.keys[e.code] = false;
+      });
+
+      const canvas = $('game-canvas');
+      canvas.addEventListener('mousedown', e => {
+        if (!this.game.started || this.openModal) return;
+        window.SoundEngine.ensure();
+        if (!this.game.profile.settings.touchControls && document.pointerLockElement !== canvas) {
+          canvas.requestPointerLock?.();
+        }
+        if (e.button === 0) this.input.fire = true;
+        if (e.button === 2) this.input.ads = true;
+      });
+      window.addEventListener('mouseup', e => {
+        if (e.button === 0) this.input.fire = false;
+        if (e.button === 2) this.input.ads = false;
+      });
+      window.addEventListener('contextmenu', e => e.preventDefault());
+      window.addEventListener('mousemove', e => {
+        if (document.pointerLockElement === canvas && !this.openModal) {
+          const sens = 0.0022 * this.game.profile.settings.sensitivity;
+          this.input.lookDX += e.movementX * sens;
+          this.input.lookDY += e.movementY * sens;
+        }
+      });
+    }
+
+    _bindTouchControls() {
+      const leftZone = $('touch-left-zone');
+      const joyBase = $('joystick-base');
+      const joyKnob = $('joystick-knob');
+      const sprintInd = $('sprint-indicator');
+
+      // Left floating joystick with sprint push-forward zone
+      leftZone.addEventListener('touchstart', e => {
+        if (this.openModal) return;
+        window.SoundEngine.ensure();
+        for (const t of e.changedTouches) {
+          if (this.touchState.joyId === null) {
+            this.touchState.joyId = t.identifier;
+            const rect = leftZone.getBoundingClientRect();
+            const bx = Math.max(58, Math.min(rect.width - 58, t.clientX - rect.left));
+            const by = Math.max(58, Math.min(rect.height - 58, t.clientY - rect.top));
+            this.touchState.joyOx = t.clientX;
+            this.touchState.joyOy = t.clientY;
+            joyBase.style.left = (bx - 52) + 'px';
+            joyBase.style.top = (by - 52) + 'px';
+            joyBase.style.bottom = 'auto';
+          }
+        }
+      }, { passive: false });
+
+      leftZone.addEventListener('touchmove', e => {
+        e.preventDefault();
+        for (const t of e.changedTouches) {
+          if (t.identifier === this.touchState.joyId) {
+            const dx = t.clientX - this.touchState.joyOx;
+            const dy = t.clientY - this.touchState.joyOy;
+            const maxR = 46;
+            const dist = Math.hypot(dx, dy);
+            const cl = Math.min(maxR, dist);
+            const ang = Math.atan2(dy, dx);
+            const kx = Math.cos(ang) * cl;
+            const ky = Math.sin(ang) * cl;
+            joyKnob.style.transform = `translate(${kx}px, ${ky}px)`;
+            this.input.moveX = kx / maxR;
+            this.input.moveZ = -ky / maxR; // up = forward (+1)
+            const sprinting = (-dy > 58 && Math.abs(dx) < 42);
+            this.input.sprint = sprinting;
+            sprintInd.classList.toggle('active', sprinting);
+          }
+        }
+      }, { passive: false });
+
+      const endJoy = e => {
+        for (const t of e.changedTouches) {
+          if (t.identifier === this.touchState.joyId) {
+            this.touchState.joyId = null;
+            this.input.moveX = 0;
+            this.input.moveZ = 0;
+            this.input.sprint = false;
+            joyKnob.style.transform = 'translate(0px, 0px)';
+            sprintInd.classList.remove('active');
+          }
+        }
+      };
+      leftZone.addEventListener('touchend', endJoy);
+      leftZone.addEventListener('touchcancel', endJoy);
+
+      // Right drag-to-look surface
+      const lookZone = $('touch-look-zone');
+      lookZone.addEventListener('touchstart', e => {
+        if (this.openModal) return;
+        window.SoundEngine.ensure();
+        for (const t of e.changedTouches) {
+          if (this.touchState.lookId === null) {
+            this.touchState.lookId = t.identifier;
+            this.touchState.lookX = t.clientX;
+            this.touchState.lookY = t.clientY;
+          }
+        }
+      }, { passive: false });
+
+      lookZone.addEventListener('touchmove', e => {
+        e.preventDefault();
+        const sens = 0.0046 * this.game.profile.settings.sensitivity * (this.input.ads ? 0.52 : 1.0);
+        for (const t of e.changedTouches) {
+          if (t.identifier === this.touchState.lookId) {
+            this.input.lookDX += (t.clientX - this.touchState.lookX) * sens;
+            this.input.lookDY += (t.clientY - this.touchState.lookY) * sens;
+            this.touchState.lookX = t.clientX;
+            this.touchState.lookY = t.clientY;
+          }
+        }
+      }, { passive: false });
+
+      const endLook = e => {
+        for (const t of e.changedTouches) {
+          if (t.identifier === this.touchState.lookId) this.touchState.lookId = null;
+        }
+      };
+      lookZone.addEventListener('touchend', endLook);
+      lookZone.addEventListener('touchcancel', endLook);
+
+      // FIRE button (supports drag-to-aim while firing — essential for mobile FPS!)
+      const fireBtn = $('tbtn-fire');
+      fireBtn.addEventListener('touchstart', e => {
+        e.preventDefault(); e.stopPropagation();
+        window.SoundEngine.ensure();
+        const t = e.changedTouches[0];
+        this.touchState.fireId = t.identifier;
+        this.touchState.fireX = t.clientX;
+        this.touchState.fireY = t.clientY;
+        this.input.fire = true;
+        fireBtn.classList.add('active');
+      }, { passive: false });
+      fireBtn.addEventListener('touchmove', e => {
+        e.preventDefault(); e.stopPropagation();
+        const sens = 0.0042 * this.game.profile.settings.sensitivity * (this.input.ads ? 0.52 : 1.0);
+        for (const t of e.changedTouches) {
+          if (t.identifier === this.touchState.fireId) {
+            this.input.lookDX += (t.clientX - this.touchState.fireX) * sens;
+            this.input.lookDY += (t.clientY - this.touchState.fireY) * sens;
+            this.touchState.fireX = t.clientX;
+            this.touchState.fireY = t.clientY;
+          }
+        }
+      }, { passive: false });
+      const endFire = e => {
+        for (const t of e.changedTouches) {
+          if (t.identifier === this.touchState.fireId) {
+            this.touchState.fireId = null;
+            this.input.fire = false;
+            fireBtn.classList.remove('active');
+          }
+        }
+      };
+      fireBtn.addEventListener('touchend', endFire);
+      fireBtn.addEventListener('touchcancel', endFire);
+
+      // ADS toggle button
+      $('tbtn-ads').addEventListener('touchstart', e => {
+        e.preventDefault(); e.stopPropagation();
+        this.input.ads = !this.input.ads;
+        $('tbtn-ads').classList.toggle('active', this.input.ads);
+        window.SoundEngine.playUI();
+      }, { passive: false });
+
+      $('tbtn-reload').addEventListener('touchstart', e => { e.preventDefault(); this.game.startReload(); }, { passive: false });
+      $('tbtn-jump').addEventListener('touchstart', e => { e.preventDefault(); this.input.jump = true; }, { passive: false });
+      $('tbtn-crouch').addEventListener('touchstart', e => {
+        e.preventDefault();
+        this.input.crouch = !this.input.crouch;
+        $('tbtn-crouch').classList.toggle('active', this.input.crouch);
+      }, { passive: false });
+      $('tbtn-interact').addEventListener('touchstart', e => { e.preventDefault(); this.game.interact(); }, { passive: false });
+
+      $('tbtn-wpn1').onclick = () => this.game.selectWeaponSlot('primary');
+      $('tbtn-wpn2').onclick = () => this.game.selectWeaponSlot('secondary');
+      $('tbtn-bolt').onclick = () => this.game.throwBoltAction();
+      $('tbtn-det').onclick = () => this.game.toggleDetector();
+    }
+
+    pollKeyboardInput() {
+      if (this.touchState.joyId === null) {
+        let mx = 0, mz = 0;
+        if (this.keys['KeyW'] || this.keys['ArrowUp']) mz += 1;
+        if (this.keys['KeyS'] || this.keys['ArrowDown']) mz -= 1;
+        if (this.keys['KeyD'] || this.keys['ArrowRight']) mx += 1;
+        if (this.keys['KeyA'] || this.keys['ArrowLeft']) mx -= 1;
+        const len = Math.hypot(mx, mz);
+        this.input.moveX = len > 0 ? mx / len : 0;
+        this.input.moveZ = len > 0 ? mz / len : 0;
+        this.input.sprint = !!(this.keys['ShiftLeft'] || this.keys['ShiftRight']);
+      }
+      if (this.keys['Space']) this.input.jump = true;
+    }
+
+    toggleModal(modalId) {
+      window.SoundEngine.playUI();
+      if (this.openModal === modalId) {
+        this.closeAllModals();
+        return;
+      }
+      this.closeAllModals();
+      this.openModal = modalId;
+      $(modalId).classList.remove('hidden');
+      this.input.fire = false;
+      this.input.ads = false;
+      document.exitPointerLock?.();
+
+      if (modalId === 'modal-inventory') this.renderInventory();
+      if (modalId === 'modal-pda') this.renderPDA();
+    }
+
+    openNpcModal(npcId) {
+      this.activeNpcId = npcId;
+      this.closeAllModals();
+      this.openModal = 'modal-npc';
+      $('modal-npc').classList.remove('hidden');
+      this.input.fire = false;
+      this.input.ads = false;
+      document.exitPointerLock?.();
+      this.renderNpcModal();
+    }
+
+    showDeathModal(reason) {
+      this.closeAllModals();
+      this.openModal = 'modal-death';
+      $('death-reason').textContent = 'Причина: ' + reason;
+      $('modal-death').classList.remove('hidden');
+      document.exitPointerLock?.();
+    }
+
+    closeAllModals() {
+      ['modal-inventory', 'modal-pda', 'modal-npc', 'modal-settings', 'modal-death'].forEach(id => {
+        $(id).classList.add('hidden');
+      });
+      this.openModal = null;
+    }
+
+    triggerHitmarker(isHeadshot) {
+      const hm = $('hitmarker');
+      hm.classList.remove('hidden');
+      hm.classList.toggle('crit', !!isHeadshot);
+      this.hitmarkerTimer = isHeadshot ? 0.24 : 0.14;
+    }
+
+    pushKillfeed(text, isHeadshot) {
+      const kf = $('killfeed');
+      const div = document.createElement('div');
+      div.className = 'kf-row' + (isHeadshot ? ' hs' : '');
+      div.textContent = text;
+      kf.prepend(div);
+      while (kf.children.length > 4) kf.lastChild.remove();
+      setTimeout(() => div.remove(), 5500);
+    }
+
+    toast(msg, kind = '') {
+      const c = $('toast-container');
+      const div = document.createElement('div');
+      div.className = 'toast-msg ' + kind;
+      div.textContent = msg;
+      c.appendChild(div);
+      while (c.children.length > 3) c.firstChild.remove();
+      setTimeout(() => div.remove(), 3600);
+    }
+
+    // === REAL-TIME HUD + RADAR UPDATE ===
+    updateHUD(dt) {
+      const g = this.game;
+      const p = g.player;
+      const derived = window.GameData.getPlayerDerivedStats(g.profile);
+      const wpn = g.getActiveWeaponStats();
+
+      if (this.hitmarkerTimer > 0) {
+        this.hitmarkerTimer -= dt;
+        if (this.hitmarkerTimer <= 0) $('hitmarker').classList.add('hidden');
+      }
+
+      // Vitals
+      $('bar-hp').style.width = Math.max(0, Math.min(100, p.hp)) + '%';
+      $('val-hp').textContent = Math.ceil(p.hp);
+      $('bar-stam').style.width = Math.max(0, Math.min(100, p.stamina)) + '%';
+      $('icon-bleed').classList.toggle('hidden', p.bleeding <= 1);
+
+      const wOver = derived.weight > derived.maxWeight;
+      $('val-weight').textContent = `${derived.weight.toFixed(1)}/${derived.maxWeight.toFixed(0)} кг`;
+      $('val-weight').classList.toggle('over', wOver);
+
+      // 4 Contaminations
+      const keys = ['rad', 'bio', 'therm', 'psy'];
+      for (const k of keys) {
+        const v = Math.round(p.contam[k]);
+        $('bar-' + k).style.width = Math.min(100, v) + '%';
+        $('val-' + k).textContent = v;
+      }
+
+      // Screen-space contamination & status FX
+      $('fx-bleed').style.opacity = Math.min(0.85, (p.bleeding / 100) * (0.6 + Math.sin(performance.now() * 0.008) * 0.35));
+      $('fx-rad').style.opacity = Math.min(0.75, p.contam.rad / 110);
+      $('fx-bio').style.opacity = Math.min(0.7, p.contam.bio / 110);
+      $('fx-therm').style.opacity = Math.min(0.75, p.contam.therm / 100);
+      $('fx-psy').style.opacity = Math.min(0.8, p.contam.psy / 100);
+      $('fx-damage').style.opacity = Math.min(0.85, p.damageFlash);
+      $('fx-emission').style.opacity = g.entities.emission.phase === 'active'
+        ? (0.35 + Math.sin(performance.now() * 0.01) * 0.15) : 0;
+
+      // Weapon panel
+      const magState = p.mags[wpn.id] ?? wpn.mag;
+      const ammoItemId = 'ammo_' + p.ammoType;
+      const reserve = window.GameData.countItem(g.profile.backpack, ammoItemId);
+      $('hud-wpn-name').textContent = p.holdingDetector ? derived.detector.name : wpn.name;
+      $('hud-wpn-tier').textContent = '+' + (wpn.level || 0);
+      $('hud-ammo-mag').textContent = magState;
+      $('hud-ammo-res').textContent = reserve;
+      $('btn-ammo-type').textContent = window.GameData.AMMO_TYPES[p.ammoType].short + ' [T]';
+      $('btn-fire-mode').textContent = (p.fireMode === 'auto' ? 'АВТО' : 'ОДИН') + ' [V]';
+
+      // Quick slot counts
+      $('q-medkit').textContent = window.GameData.countItem(g.profile.backpack, 'medkit');
+      $('q-bandage').textContent = window.GameData.countItem(g.profile.backpack, 'bandage');
+      $('q-antirad').textContent = window.GameData.countItem(g.profile.backpack, 'antirad');
+      $('q-energy').textContent = window.GameData.countItem(g.profile.backpack, 'energy');
+      $('q-grenade').textContent = window.GameData.countItem(g.profile.backpack, 'grenade');
+
+      // Utility active states
+      $('tbtn-wpn1').classList.toggle('active', !p.holdingDetector && p.activeSlot === 'primary');
+      $('tbtn-wpn2').classList.toggle('active', !p.holdingDetector && p.activeSlot === 'secondary');
+      $('tbtn-det').classList.toggle('active', p.holdingDetector);
+
+      // Clock, Weather, Money, Region
+      $('hud-clock').textContent = g.world.getFormattedClock();
+      $('hud-weather').textContent = g.world.getWeatherLabel(g.entities.emission.phase);
+      $('hud-money').textContent = g.profile.money.toLocaleString('ru-RU') + ' ₽';
+      $('radar-zone-tag').textContent = g.world.getRegionName(p.x, p.z);
+
+      const inSafe = g.world.isSafeZone(p.x, p.z);
+      const hasRoof = inSafe || g.engine.hasRoofCover(p.x, p.y + 1.5, p.z);
+      $('safe-badge').classList.toggle('hidden', !inSafe);
+      $('roof-badge').classList.toggle('hidden', inSafe || !hasRoof);
+
+      // Emission banner
+      const em = g.entities.emission;
+      const emBan = $('emission-banner');
+      if (em.phase === 'warning' || em.phase === 'active') {
+        emBan.classList.remove('hidden');
+        $('emission-sub').textContent = hasRoof
+          ? `✔ ВЫ В УКРЫТИИ (${Math.ceil(em.timer)} с)`
+          : `⚠ СРОЧНО ПОД КРЫШУ! (${Math.ceil(em.timer)} с)`;
+      } else {
+        emBan.classList.add('hidden');
+      }
+
+      // Proto-Anomaly progress banner
+      const actProto = g.world.protoAnomalies.find(pr => pr.active);
+      $('proto-banner').classList.toggle('hidden', !actProto);
+      if (actProto) $('proto-bar-fill').style.width = Math.min(100, actProto.progress) + '%';
+
+      // Compass heading
+      const deg = (((-p.yaw * 180 / Math.PI) % 360) + 360) % 360;
+      const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+      $('compass-bar').textContent = dirs[Math.round(deg / 45) % 8] + ' ' + String(Math.round(deg)).padStart(3, '0') + '°';
+
+      // Crosshair spread & ADS optic scope
+      const showScope = p.adsBlend > 0.72 && wpn.hasOptic && !p.holdingDetector;
+      $('scope-overlay').classList.toggle('hidden', !showScope);
+      $('crosshair').classList.toggle('hidden', p.adsBlend > 0.4 || p.holdingDetector);
+      const spreadPx = Math.round(6 + p.currentSpread * 420);
+      document.querySelector('.ch-top').style.bottom = spreadPx + 'px';
+      document.querySelector('.ch-bottom').style.top = spreadPx + 'px';
+      document.querySelector('.ch-left').style.right = spreadPx + 'px';
+      document.querySelector('.ch-right').style.left = spreadPx + 'px';
+
+      // Reload bar
+      if (p.reloadTimer > 0) {
+        $('reload-bar-wrap').classList.remove('hidden');
+        const pct = Math.max(0, Math.min(100, (1 - p.reloadTimer / wpn.reloadTime) * 100));
+        $('reload-fill').style.width = pct + '%';
+      } else {
+        $('reload-bar-wrap').classList.add('hidden');
+      }
+
+      // Detector HUD
+      $('detector-hud').classList.toggle('hidden', !p.holdingDetector);
+      if (p.holdingDetector) {
+        $('det-name').textContent = derived.detector.name;
+        const leds = document.querySelectorAll('#detector-hud .det-led');
+        const sig = g.detectorSignalStrength;
+        const litCount = Math.round(sig * leds.length);
+        leds.forEach((el, i) => {
+          el.classList.toggle('on', i < litCount && litCount < 5);
+          el.classList.toggle('hot', i < litCount && litCount >= 5);
+        });
+        if (g.entities.signalScan.active) {
+          $('det-mode').textContent = 'СИГНАЛ САК';
+          const dSig = Math.hypot(p.x - g.entities.signalScan.targetX, p.z - g.entities.signalScan.targetZ);
+          $('det-text').textContent = `ЧАСТОТА: ~${Math.round(dSig)} м`;
+        } else {
+          $('det-mode').textContent = 'АРТЕФАКТЫ';
+          $('det-text').textContent = sig > 0.08 ? `ОТКЛИК: ${Math.round(sig * 100)}%` : 'ЧИСТО В РАДИУСЕ';
+        }
+      }
+
+      // Interact prompt + contextual mobile F button
+      const target = g.currentInteractTarget;
+      const tInteract = $('tbtn-interact');
+      if (target) {
+        $('interact-prompt').classList.remove('hidden');
+        $('interact-text').textContent = target.label;
+        tInteract.classList.remove('hidden');
+        tInteract.textContent = 'F • ' + target.shortLabel;
+      } else {
+        $('interact-prompt').classList.add('hidden');
+        tInteract.classList.add('hidden');
+      }
+
+      // === RADAR RENDER + 50m HUMAN COUNTER & ICONIC BEEP ===
+      this._renderRadar();
+    }
+
+    _renderRadar() {
+      const g = this.game;
+      const p = g.player;
+      const ctx = this.radarCtx;
+      const W = 128, H = 128, CX = 64, CY = 64;
+      const RANGE = 55;
+
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = '#09100d';
+      ctx.fillRect(0, 0, W, H);
+
+      // Radar rings & crosshair
+      ctx.strokeStyle = 'rgba(110, 165, 130, 0.22)';
+      ctx.lineWidth = 1;
+      for (const r of [20, 40, 58]) {
+        ctx.beginPath(); ctx.arc(CX, CY, r, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.beginPath(); ctx.moveTo(CX, 4); ctx.lineTo(CX, H - 4); ctx.moveTo(4, CY); ctx.lineTo(W - 4, CY); ctx.stroke();
+
+      // View cone
+      ctx.fillStyle = 'rgba(229, 169, 59, 0.09)';
+      ctx.beginPath();
+      ctx.moveTo(CX, CY);
+      ctx.arc(CX, CY, 58, -Math.PI * 0.5 - 0.45, -Math.PI * 0.5 + 0.45);
+      ctx.closePath();
+      ctx.fill();
+
+      const cosY = Math.cos(p.yaw);
+      const sinY = Math.sin(p.yaw);
+      const worldToRadar = (wx, wz) => {
+        const dx = wx - p.x;
+        const dz = wz - p.z;
+        // Rotate by player yaw so player forward is always UP on radar!
+        const rx = dx * cosY - dz * sinY;
+        const ry = dx * sinY + dz * cosY;
+        return {
+          x: CX + (rx / RANGE) * 56,
+          y: CY + (ry / RANGE) * 56,
+          dist: Math.hypot(dx, dz)
+        };
+      };
+
+      const plot = (wx, wz, color, size, clampEdge = false) => {
+        const pt = worldToRadar(wx, wz);
+        let x = pt.x, y = pt.y;
+        const d = Math.hypot(x - CX, y - CY);
+        if (d > 56) {
+          if (!clampEdge) return;
+          x = CX + ((x - CX) / d) * 56;
+          y = CY + ((y - CY) / d) * 56;
+        }
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
+      };
+
+      // Bar Safe Zone direction indicator
+      plot(0, 0, '#5be07d', 4, true);
+
+      // Active spots & Proto-anomalies
+      for (const sp of g.world.spots) plot(sp.x, sp.z, 'rgba(255, 140, 48, 0.75)', 2.8, false);
+      for (const pr of g.world.protoAnomalies) plot(pr.x, pr.z, '#3ec8e8', 3.4, true);
+
+      // Signal Scan target
+      if (g.entities.signalScan.active) {
+        plot(g.entities.signalScan.targetX, g.entities.signalScan.targetZ, '#3ec8e8', 4, true);
+      }
+
+      // Player's dropped Loot Bags
+      for (const b of g.entities.lootBags) {
+        if (b.isPlayerBag) plot(b.x, b.z, '#c77dff', 4.2, true);
+      }
+
+      // Count humans (hostile bandits/stalkers) within 50m radius!
+      let humanCount50m = 0;
+      for (const en of g.entities.enemies) {
+        if (en.hp <= 0) continue;
+        const d = Math.hypot(en.x - p.x, en.z - p.z);
+        if (en.isHuman && d <= 50) humanCount50m++;
+        if (d < RANGE) {
+          // Mutants show faint orange dots when close; humans show count on STALZONE radar!
+          if (!en.isHuman && d < 28) plot(en.x, en.z, '#ff6b4a', 2.2, false);
+        }
+      }
+
+      // ICONIC STALZONE BEEP EVERY TIME HUMAN COUNT IN 50m INCREASES!
+      if (humanCount50m > this.prevHumanCount && g.started) {
+        window.SoundEngine.playRadarBeep();
+        const box = $('radar-human-box');
+        box.classList.add('beep-flash');
+        setTimeout(() => box.classList.remove('beep-flash'), 420);
+      }
+      this.prevHumanCount = humanCount50m;
+      $('radar-human-count').textContent = humanCount50m;
+
+      // Player center triangle
+      ctx.fillStyle = '#e5a93b';
+      ctx.beginPath();
+      ctx.moveTo(CX, CY - 5);
+      ctx.lineTo(CX - 4, CY + 4);
+      ctx.lineTo(CX + 4, CY + 4);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // === INVENTORY MODAL ===
+    renderInventory() {
+      const g = this.game;
+      const prof = g.profile;
+      const derived = window.GameData.getPlayerDerivedStats(prof);
+
+      $('inv-weight-label').textContent = `${derived.weight.toFixed(1)} / ${derived.maxWeight.toFixed(0)} кг`;
+      $('inv-money-label').textContent = prof.money.toLocaleString('ru-RU') + ' ₽';
+
+      // 1. Personal Equipment Slots
+      const equipList = $('equip-slots-list');
+      equipList.innerHTML = '';
+      const eqRows = [
+        { key: 'armor', label: 'БРОНЯ', item: window.GameData.ARMORS[prof.equipment.armor], lvl: prof.upgrades[prof.equipment.armor] || 0, pool: prof.ownedGear.armors, map: window.GameData.ARMORS },
+        { key: 'primary', label: 'ОСНОВНОЕ', item: window.GameData.WEAPONS[prof.equipment.primary], lvl: prof.upgrades[prof.equipment.primary] || 0, pool: prof.ownedGear.weapons.filter(id => window.GameData.WEAPONS[id].slot === 'primary'), map: window.GameData.WEAPONS },
+        { key: 'secondary', label: 'ПИСТОЛЕТ', item: window.GameData.WEAPONS[prof.equipment.secondary], lvl: prof.upgrades[prof.equipment.secondary] || 0, pool: prof.ownedGear.weapons.filter(id => window.GameData.WEAPONS[id].slot === 'secondary'), map: window.GameData.WEAPONS },
+        { key: 'detector', label: 'ДЕТЕКТОР', item: window.GameData.DETECTORS[prof.equipment.detector], lvl: 0, pool: prof.ownedGear.detectors, map: window.GameData.DETECTORS },
+        { key: 'container', label: 'КОНТЕЙНЕР', item: window.GameData.CONTAINERS[prof.equipment.container], lvl: 0, pool: prof.ownedGear.containers, map: window.GameData.CONTAINERS }
+      ];
+
+      for (const row of eqRows) {
+        const div = document.createElement('div');
+        div.className = 'equip-slot';
+        div.innerHTML = `<div><div class="slot-type">${row.label}</div><div class="slot-name">${row.item.name}${row.lvl > 0 ? ' +' + row.lvl : ''}</div></div><span class="muted">${row.pool.length > 1 ? '⇄ Сменить' : '✔'}</span>`;
+        div.onclick = () => {
+          if (row.pool.length > 1) {
+            const idx = row.pool.indexOf(prof.equipment[row.key]);
+            prof.equipment[row.key] = row.pool[(idx + 1) % row.pool.length];
+            if (row.key === 'container') {
+              const maxS = window.GameData.CONTAINERS[prof.equipment.container].slots;
+              while (prof.containerArtifacts.length > maxS) {
+                const removed = prof.containerArtifacts.pop();
+                window.GameData.addItemToList(prof.backpack, removed, 1);
+              }
+            }
+            window.SoundEngine.playUI();
+            g.save();
+            this.renderInventory();
+          }
+        };
+        equipList.appendChild(div);
+      }
+
+      // 2. Artifact Container Slots
+      const cont = derived.container;
+      $('container-prot-label').textContent = `(защита ${Math.round(cont.protection * 100)}%)`;
+      const artWrap = $('container-art-slots');
+      artWrap.innerHTML = '';
+      for (let i = 0; i < cont.slots; i++) {
+        const artId = prof.containerArtifacts[i];
+        const div = document.createElement('div');
+        div.className = 'art-slot' + (artId ? ' filled' : '');
+        if (artId && window.GameData.ARTIFACTS[artId]) {
+          const a = window.GameData.ARTIFACTS[artId];
+          div.innerHTML = `<strong>${a.name}</strong><div class="muted">Снять</div>`;
+          div.onclick = () => {
+            prof.containerArtifacts.splice(i, 1);
+            window.GameData.addItemToList(prof.backpack, artId, 1);
+            window.SoundEngine.playUI();
+            g.save();
+            this.renderInventory();
+          };
+        } else {
+          div.textContent = 'Пустой слот';
+        }
+        artWrap.appendChild(div);
+      }
+
+      // 3. Weapon Attachments toggles
+      const attWrap = $('attachment-toggles');
+      attWrap.innerHTML = '';
+      const attLabels = { optic: 'Оптика', suppressor: 'Глушитель', extMag: 'Увел.маг', laser: 'ЛЦУ' };
+      for (const k of Object.keys(attLabels)) {
+        const btn = document.createElement('button');
+        const owned = prof.attachmentsOwned[k];
+        const on = owned && prof.attachmentsEnabled[k];
+        btn.className = 'attach-chip' + (on ? ' on' : '');
+        btn.textContent = owned ? `${on ? '✔ ' : ''}${attLabels[k]}` : `${attLabels[k]} (нет)`;
+        btn.onclick = () => {
+          if (!owned) { g.toast('Купите обвес у Торговца в Баре!', 'bad'); return; }
+          prof.attachmentsEnabled[k] = !prof.attachmentsEnabled[k];
+          window.SoundEngine.playUI();
+          g.save();
+          this.renderInventory();
+        };
+        attWrap.appendChild(btn);
+      }
+
+      // Player Stats Summary
+      $('player-stats-summary').innerHTML = `
+        Пулестойкость: <b>${derived.bulletRes.toFixed(0)}</b> • Скорость: <b>${Math.round(derived.speedMult * 100)}%</b><br>
+        Защита: ☢${derived.radProt} | ☣${derived.bioProt} | 🔥${derived.thermProt} | 🧠${derived.psyProt}<br>
+        Реген HP: +${derived.hpRegen.toFixed(1)}/с • Дебафф артов: ☢${derived.artDebuffs.rad.toFixed(1)} ☣${derived.artDebuffs.bio.toFixed(1)} 🧠${derived.artDebuffs.psy.toFixed(1)}
+      `;
+
+      // 4. Backpack Grid
+      const grid = $('backpack-grid');
+      grid.innerHTML = '';
+      $('bag-count-label').textContent = prof.backpack.length + ' видов';
+      for (const entry of prof.backpack) {
+        const def = window.GameData.ITEMS[entry.id];
+        if (!def) continue;
+        const card = document.createElement('div');
+        card.className = `inv-item tier-${def.tier || 1}` + (this.selectedBagId === entry.id ? ' selected' : '');
+        card.innerHTML = `<div class="item-title">${def.name}</div><div class="item-meta"><span>x${entry.count}</span><span>${(def.weight * entry.count).toFixed(1)}кг</span></div>`;
+        card.onclick = () => {
+          this.selectedBagId = entry.id;
+          window.SoundEngine.playUI();
+          this.renderInventory();
+          this._renderInspector(entry);
+        };
+        grid.appendChild(card);
+      }
+
+      const sel = prof.backpack.find(b => b.id === this.selectedBagId);
+      if (sel) this._renderInspector(sel);
+      else $('item-inspector').innerHTML = '<p class="muted">Выберите предмет из рюкзака.</p>';
+    }
+
+    _renderInspector(entry) {
+      const g = this.game;
+      const prof = g.profile;
+      const def = window.GameData.ITEMS[entry.id];
+      if (!def) return;
+      const box = $('item-inspector');
+      box.innerHTML = `
+        <div class="insp-title">${def.name} (x${entry.count})</div>
+        <div class="insp-stats">
+          Вес: ${(def.weight * entry.count).toFixed(2)} кг • Цена: ~${Math.round(def.price * 0.65)} ₽<br>
+          ${def.desc || ''}
+        </div>
+        <div class="insp-actions" id="insp-actions-wrap"></div>
+      `;
+      const act = $('insp-actions-wrap');
+
+      if (def.type === 'consumable' && def.id !== 'grenade') {
+        const b = document.createElement('button');
+        b.className = 'btn-primary';
+        b.textContent = 'ИСПОЛЬЗОВАТЬ';
+        b.onclick = () => { g.consumeItem(def.id); this.renderInventory(); };
+        act.appendChild(b);
+      }
+      if (def.type === 'artifact') {
+        const b = document.createElement('button');
+        b.className = 'btn-primary';
+        b.textContent = 'ПОМЕСТИТЬ В КОНТЕЙНЕР';
+        b.onclick = () => {
+          const maxS = window.GameData.CONTAINERS[prof.equipment.container].slots;
+          if (prof.containerArtifacts.length >= maxS) {
+            g.toast('Контейнер полон! Снимите другой артефакт.', 'bad');
+            return;
+          }
+          window.GameData.removeItemFromList(prof.backpack, def.id, 1);
+          prof.containerArtifacts.push(def.id);
+          window.SoundEngine.playUI();
+          g.save();
+          this.renderInventory();
+        };
+        act.appendChild(b);
+      }
+      if (def.type === 'attachment') {
+        const b = document.createElement('button');
+        b.className = 'btn-primary';
+        b.textContent = 'УСТАНОВИТЬ ОБВЕС';
+        b.onclick = () => {
+          window.GameData.removeItemFromList(prof.backpack, def.id, 1);
+          prof.attachmentsOwned[def.attKey] = true;
+          prof.attachmentsEnabled[def.attKey] = true;
+          g.toast(`Обвес «${def.name}» установлен!`, 'good');
+          g.save();
+          this.renderInventory();
+        };
+        act.appendChild(b);
+      }
+
+      const dropBtn = document.createElement('button');
+      dropBtn.className = 'btn-danger';
+      dropBtn.textContent = 'ВЫБРОСИТЬ 1 ШТ.';
+      dropBtn.onclick = () => {
+        window.GameData.removeItemFromList(prof.backpack, def.id, 1);
+        g.save();
+        this.renderInventory();
+      };
+      act.appendChild(dropBtn);
+    }
+
+    // === PDA MODAL (MAP, QUESTS, STATS) ===
+    renderPDA() {
+      const g = this.game;
+      const p = g.player;
+
+      // Emission countdown & coordinates
+      const em = g.entities.emission;
+      const sec = Math.max(0, Math.ceil(em.timer));
+      $('pda-em-timer').textContent = em.phase === 'calm'
+        ? `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`
+        : `ИДЁТ (${sec}с)`;
+      $('pda-coords').textContent = `Координаты: X ${Math.round(p.x)} / Z ${Math.round(p.z)} • ${g.world.getRegionName(p.x, p.z)}`;
+
+      // Render Interactive Zone Map Canvas
+      const ctx = this.pdaCtx;
+      const W = 480, H = 480;
+      const mapScale = W / 320;
+      const toMap = (wx, wz) => ({ x: W * 0.5 + wx * mapScale, y: H * 0.5 + wz * mapScale });
+
+      ctx.fillStyle = '#0d1511';
+      ctx.fillRect(0, 0, W, H);
+
+      // Regions tint
+      ctx.fillStyle = 'rgba(229, 196, 59, 0.08)'; // South Outskirts
+      ctx.fillRect(0, H * 0.5 + 24 * mapScale, W, H * 0.5);
+      ctx.fillStyle = 'rgba(222, 67, 56, 0.09)'; // North High-Risk
+      ctx.fillRect(0, 0, W, H * 0.5 - 24 * mapScale);
+
+      // Grid lines
+      ctx.strokeStyle = 'rgba(130, 175, 145, 0.12)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 8; i++) {
+        const pos = (W / 8) * i;
+        ctx.beginPath(); ctx.moveTo(pos, 0); ctx.lineTo(pos, H); ctx.moveTo(0, pos); ctx.lineTo(W, pos); ctx.stroke();
+      }
+
+      // Main Road
+      ctx.fillStyle = '#2c3330';
+      ctx.fillRect(W * 0.5 - 8, 10, 16, H - 20);
+
+      // Swamps
+      ctx.fillStyle = 'rgba(42, 105, 76, 0.55)';
+      for (const s of g.world.swampPools) {
+        const pt = toMap(s.x - s.w * 0.5, s.z - s.d * 0.5);
+        ctx.fillRect(pt.x, pt.y, s.w * mapScale, s.d * mapScale);
+      }
+
+      // Contamination zones
+      const cCols = { rad: 'rgba(232,207,56,0.22)', bio: 'rgba(91,224,125,0.22)', therm: 'rgba(255,110,48,0.22)', psy: 'rgba(181,101,255,0.22)' };
+      for (const cz of g.world.contamZones) {
+        const pt = toMap(cz.x, cz.z);
+        ctx.fillStyle = cCols[cz.type] || 'rgba(255,255,255,0.15)';
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, cz.radius * mapScale, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // Safe Zone Bar
+      const barPt = toMap(0, 0);
+      ctx.fillStyle = 'rgba(91, 224, 125, 0.25)';
+      ctx.strokeStyle = '#5be07d';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(barPt.x, barPt.y, 24 * mapScale, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+      // Spots, Proto, Signal, Bags
+      for (const sp of g.world.spots) {
+        const pt = toMap(sp.x, sp.z);
+        ctx.fillStyle = '#ff8c30';
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2); ctx.fill();
+      }
+      for (const pr of g.world.protoAnomalies) {
+        const pt = toMap(pr.x, pr.z);
+        ctx.fillStyle = '#3ec8e8';
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2); ctx.fill();
+      }
+      if (g.entities.signalScan.active) {
+        const pt = toMap(g.entities.signalScan.targetX, g.entities.signalScan.targetZ);
+        ctx.strokeStyle = '#3ec8e8';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 12, 0, Math.PI * 2); ctx.stroke();
+      }
+      for (const b of g.entities.lootBags) {
+        if (!b.isPlayerBag) continue;
+        const pt = toMap(b.x, b.z);
+        ctx.fillStyle = '#c77dff';
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 7, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // Labels
+      ctx.font = 'bold 12px monospace';
+      ctx.fillStyle = '#76e896'; ctx.fillText('БАЗА «БАР»', barPt.x - 36, barPt.y + 4);
+      ctx.fillStyle = '#ff8c82'; ctx.fillText('СЕВЕР: ПРОМЗОНА / НИИ (ТИР 2-3)', 120, 26);
+      ctx.fillStyle = '#f2d96b'; ctx.fillText('ЮГ: БОЛОТА / ДЕРЕВНЯ (ТИР 1)', 125, H - 16);
+
+      // Player marker
+      const pl = toMap(p.x, p.z);
+      ctx.fillStyle = '#e5a93b';
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(pl.x, pl.y, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+      // Render Quests Tab
+      const qList = $('pda-quests-list');
+      qList.innerHTML = '';
+      for (const q of g.profile.quests) {
+        const done = q.progress >= q.target;
+        const card = document.createElement('div');
+        card.className = 'quest-card' + (done ? ' done' : '');
+        const rItem = window.GameData.ITEMS[q.rewardItem];
+        card.innerHTML = `
+          <div>
+            <strong>${q.title}</strong> (${Math.min(q.progress, q.target)}/${q.target})
+            <div class="muted">${q.desc}</div>
+            <div class="muted">Награда: ${q.rewardMoney} ₽ + ${rItem ? rItem.name : ''} x${q.rewardCount}</div>
+          </div>
+          <div>${q.claimed ? '<span class="req-ok">✔ ПОЛУЧЕНО</span>' : (done ? '<button class="btn-primary">ЗАБРАТЬ</button>' : '<span class="muted">В ПРОЦЕССЕ</span>')}</div>
+        `;
+        if (done && !q.claimed) {
+          card.querySelector('button').onclick = () => {
+            q.claimed = true;
+            g.addMoney(q.rewardMoney);
+            window.GameData.addItemToList(g.profile.backpack, q.rewardItem, q.rewardCount);
+            g.profile.reputation += 25;
+            window.SoundEngine.playHeal();
+            g.toast(`✔ Квест «${q.title}» сдан!`, 'good');
+            g.save();
+            this.renderPDA();
+          };
+        }
+        qList.appendChild(card);
+      }
+
+      // Render Stats & Guide Tab
+      const st = g.profile.stats;
+      const derived = window.GameData.getPlayerDerivedStats(g.profile);
+      $('pda-stats-content').innerHTML = `
+        <div class="npc-card">
+          <h4>СТАТИСТИКА СТАЛКЕРА</h4>
+          <p>Репутация Бара: <b>${g.profile.reputation}</b> • Баланс: <b>${g.profile.money} ₽</b></p>
+          <p>Убито мутантов: <b>${st.killsMutant}</b> • Бандитов/Сталкеров: <b>${st.killsHuman}</b> • В голову: <b>${st.headshots}</b></p>
+          <p>Найдено артефактов: <b>${st.artifactsFound}</b> • Пережито Выбросов: <b>${st.emissionsSurvived}</b> • Смертей: <b>${st.deaths}</b></p>
+        </div>
+        <div class="npc-card">
+          <h4>СПРАВОЧНИК ЗАЩИТЫ И ЗАРАЖЕНИЙ</h4>
+          <p>Текущая броня: <b>${derived.armor.name} (+${derived.armorLvl})</b> — Пулестойкость <b>${derived.bulletRes.toFixed(0)}</b></p>
+          <p>☢ Радиация: защита ур. ${derived.radProt} | ☣ Био: ур. ${derived.bioProt} | 🔥 Термо: ур. ${derived.thermProt} | 🧠 Пси: ур. ${derived.psyProt}</p>
+          <p>Совет: Бросайте БОЛТ [B] в «Электру», чтобы разрядить её на 3 секунды. Достаньте ДЕТЕКТОР [G], чтобы проявлять скрытые артефакты и сканировать сигналы [X].</p>
+        </div>
+      `;
+    }
+
+    // === BAR NPC SERVICES MODAL ===
+    renderNpcModal() {
+      const g = this.game;
+      const prof = g.profile;
+      const npcId = this.activeNpcId;
+      $('npc-money-label').textContent = prof.money.toLocaleString('ru-RU') + ' ₽';
+      const body = $('npc-modal-body');
+      body.innerHTML = '';
+
+      if (npcId === 'trader') {
+        $('npc-modal-title').textContent = 'ТОРГОВЕЦ «СИДОРЫЧ»';
+        $('npc-modal-sub').textContent = 'Боеприпасы (Обыч / ББ / Эксп), медицина, обвесы и запчасти';
+        const list = document.createElement('div');
+        list.className = 'npc-list';
+        for (const offer of window.GameData.TRADER_CATALOG) {
+          const def = window.GameData.ITEMS[offer.itemId];
+          const card = document.createElement('div');
+          card.className = 'npc-card';
+          card.innerHTML = `
+            <div><h4>${def.name} x${offer.count}</h4><p>${def.desc}</p></div>
+            <button class="btn-primary">КУПИТЬ • ${offer.price} ₽</button>
+          `;
+          card.querySelector('button').onclick = () => {
+            if (prof.money < offer.price) { g.toast('Недостаточно рублей!', 'bad'); return; }
+            prof.money -= offer.price;
+            if (def.type === 'attachment') {
+              prof.attachmentsOwned[def.attKey] = true;
+              prof.attachmentsEnabled[def.attKey] = true;
+              g.toast(`Обвес «${def.name}» куплен и установлен!`, 'good');
+            } else {
+              window.GameData.addItemToList(prof.backpack, offer.itemId, offer.count);
+              g.toast(`Куплено: ${def.name} x${offer.count}`, 'good');
+            }
+            window.SoundEngine.playUI();
+            g.save();
+            this.renderNpcModal();
+          };
+          list.appendChild(card);
+        }
+        body.appendChild(list);
+      } else if (npcId === 'barter') {
+        $('npc-modal-title').textContent = 'БАРТЕРЩИК «КУЗНЕЦ»';
+        $('npc-modal-sub').textContent = 'Ветки бартера: Боевая / Научная / Комбо броня, топовые стволы, Берлога и Бурят';
+        const list = document.createElement('div');
+        list.className = 'npc-list';
+        for (const rec of window.GameData.BARTER_RECIPES) {
+          const ownedList = rec.resultType === 'weapon' ? prof.ownedGear.weapons
+            : rec.resultType === 'armor' ? prof.ownedGear.armors
+            : rec.resultType === 'container' ? prof.ownedGear.containers : prof.ownedGear.detectors;
+          const already = ownedList.includes(rec.resultId);
+          const hasPrev = ownedList.includes(rec.reqItem);
+          let hasAllRes = prof.money >= rec.cost && hasPrev;
+          let reqHtml = `<div class="${hasPrev ? 'req-ok' : 'req-miss'}">База: ${rec.reqItem} ${hasPrev ? '✔' : '✕'}</div>`;
+          for (const rk of Object.keys(rec.reqRes)) {
+            const need = rec.reqRes[rk];
+            const have = window.GameData.countItem(prof.backpack, rk) + window.GameData.countItem(prof.stash, rk);
+            if (have < need) hasAllRes = false;
+            const rName = window.GameData.ITEMS[rk].name;
+            reqHtml += `<div class="${have >= need ? 'req-ok' : 'req-miss'}">${rName}: ${have}/${need}</div>`;
+          }
+          reqHtml += `<div class="${prof.money >= rec.cost ? 'req-ok' : 'req-miss'}">Рубли: ${rec.cost} ₽</div>`;
+
+          const card = document.createElement('div');
+          card.className = 'npc-card';
+          card.innerHTML = `
+            <div><h4>${rec.name}</h4><div class="req-list">${reqHtml}</div></div>
+            <button class="${already ? 'btn-ghost' : (hasAllRes ? 'btn-primary' : 'btn-ghost')}">${already ? '✔ СБАРТЕРЕНО' : 'СБАРТЕРИТЬ'}</button>
+          `;
+          card.querySelector('button').onclick = () => {
+            if (already || !hasAllRes) { g.toast('Не хватает ресурсов или базового предмета!', 'bad'); return; }
+            prof.money -= rec.cost;
+            for (const rk of Object.keys(rec.reqRes)) {
+              let rem = rec.reqRes[rk];
+              const inBag = window.GameData.countItem(prof.backpack, rk);
+              const takeBag = Math.min(inBag, rem);
+              if (takeBag > 0) { window.GameData.removeItemFromList(prof.backpack, rk, takeBag); rem -= takeBag; }
+              if (rem > 0) window.GameData.removeItemFromList(prof.stash, rk, rem);
+            }
+            ownedList.push(rec.resultId);
+            // Auto-equip newly bartered upgrade!
+            if (rec.resultType === 'weapon') prof.equipment.primary = rec.resultId;
+            if (rec.resultType === 'armor') prof.equipment.armor = rec.resultId;
+            if (rec.resultType === 'container') prof.equipment.container = rec.resultId;
+            if (rec.resultType === 'detector') prof.equipment.detector = rec.resultId;
+            window.SoundEngine.playHeal();
+            g.toast(`⚒ Получено и экипировано: ${rec.name}!`, 'good');
+            g.save();
+            this.renderNpcModal();
+          };
+          list.appendChild(card);
+        }
+        body.appendChild(list);
+      } else if (npcId === 'mechanic') {
+        $('npc-modal-title').textContent = 'МЕХАНИК «АЗОТ» — ЗАТОЧКА (+1..+15)';
+        $('npc-modal-sub').textContent = 'Затачивайте оружие (+урон) и броню (+пулестойкость) за Инструменты и рубли';
+        const toolsHave = window.GameData.countItem(prof.backpack, 'tools') + window.GameData.countItem(prof.stash, 'tools');
+        const info = document.createElement('div');
+        info.className = 'pill-stat';
+        info.textContent = `Инструменты / Запаски в наличии (рюкзак + схрон): ${toolsHave} шт.`;
+        body.appendChild(info);
+
+        const list = document.createElement('div');
+        list.className = 'npc-list';
+        const targets = [
+          { id: prof.equipment.primary, name: window.GameData.WEAPONS[prof.equipment.primary].name, kind: 'Оружие (+4.5% урона/ур.)' },
+          { id: prof.equipment.secondary, name: window.GameData.WEAPONS[prof.equipment.secondary].name, kind: 'Пистолет (+4.5% урона/ур.)' },
+          { id: prof.equipment.armor, name: window.GameData.ARMORS[prof.equipment.armor].name, kind: 'Броня (+3.5% пулест./ур.)' }
+        ];
+        for (const t of targets) {
+          const lvl = prof.upgrades[t.id] || 0;
+          const costMoney = (lvl + 1) * 900;
+          const costTools = lvl >= 8 ? 2 : 1;
+          const chance = lvl < 5 ? 100 : Math.max(35, 100 - (lvl - 4) * 6);
+          const card = document.createElement('div');
+          card.className = 'npc-card';
+          card.innerHTML = `
+            <div>
+              <h4>${t.name} [ +${lvl} / +15 ]</h4>
+              <p>${t.kind}</p>
+              <div class="req-list">Цена: ${costMoney} ₽ • Запаски: ${costTools} шт. • Шанс успеха: ${chance}%</div>
+            </div>
+            <button class="btn-primary">${lvl >= 15 ? 'МАКСИМУМ (+15)' : 'ЗАТОЧИТЬ ДО +' + (lvl + 1)}</button>
+          `;
+          card.querySelector('button').onclick = () => {
+            if (lvl >= 15) return;
+            if (prof.money < costMoney || toolsHave < costTools) {
+              g.toast('Нужно больше рублей или Инструментов/Запасок!', 'bad');
+              return;
+            }
+            prof.money -= costMoney;
+            let rem = costTools;
+            const inBag = window.GameData.countItem(prof.backpack, 'tools');
+            const tb = Math.min(inBag, rem);
+            if (tb > 0) { window.GameData.removeItemFromList(prof.backpack, 'tools', tb); rem -= tb; }
+            if (rem > 0) window.GameData.removeItemFromList(prof.stash, 'tools', rem);
+
+            if (Math.random() * 100 <= chance) {
+              prof.upgrades[t.id] = lvl + 1;
+              window.SoundEngine.playHeal();
+              g.toast(`⚒ Успешная заточка! ${t.name} теперь +${lvl + 1}!`, 'good');
+            } else {
+              window.SoundEngine.playBoltClang();
+              g.toast(`Заточка не удалась — уровень сохранён (+${lvl}).`, 'bad');
+            }
+            g.save();
+            this.renderNpcModal();
+          };
+          list.appendChild(card);
+        }
+        body.appendChild(list);
+      } else if (npcId === 'fence') {
+        $('npc-modal-title').textContent = 'СКУПЩИК «БАРЫГА»';
+        $('npc-modal-sub').textContent = 'Скупает части мутантов, артефакты и трофеи за наличные рубли';
+        const sellAllBtn = document.createElement('button');
+        sellAllBtn.className = 'btn-primary';
+        sellAllBtn.textContent = 'ПРОДАТЬ ВСЕ ТРОФЕИ И ПРОДАВАЕМЫЙ ЛУТ';
+        sellAllBtn.onclick = () => {
+          let total = 0;
+          for (let i = prof.backpack.length - 1; i >= 0; i--) {
+            const def = window.GameData.ITEMS[prof.backpack[i].id];
+            if (def && def.type === 'sellable') {
+              total += Math.round(def.price * prof.backpack[i].count);
+              prof.backpack.splice(i, 1);
+            }
+          }
+          if (total > 0) {
+            g.addMoney(total);
+            window.SoundEngine.playHeal();
+            g.toast(`💰 Продано трофеев на +${total} ₽!`, 'good');
+            g.save();
+            this.renderNpcModal();
+          } else {
+            g.toast('В рюкзаке нет трофеев на продажу.', 'bad');
+          }
+        };
+        body.appendChild(sellAllBtn);
+
+        const list = document.createElement('div');
+        list.className = 'npc-list';
+        for (const entry of prof.backpack) {
+          const def = window.GameData.ITEMS[entry.id];
+          if (!def) continue;
+          const unitPrice = def.type === 'sellable' || def.type === 'artifact' ? def.price : Math.round(def.price * 0.55);
+          const card = document.createElement('div');
+          card.className = 'npc-card';
+          card.innerHTML = `
+            <div><h4>${def.name} x${entry.count}</h4><p>${def.desc}</p></div>
+            <button class="btn-ghost">ПРОДАТЬ 1 ШТ • +${unitPrice} ₽</button>
+          `;
+          card.querySelector('button').onclick = () => {
+            window.GameData.removeItemFromList(prof.backpack, entry.id, 1);
+            g.addMoney(unitPrice);
+            window.SoundEngine.playUI();
+            g.save();
+            this.renderNpcModal();
+          };
+          list.appendChild(card);
+        }
+        body.appendChild(list);
+      } else if (npcId === 'stash') {
+        $('npc-modal-title').textContent = 'ЛИЧНЫЙ СХРОН (ХРАНИЛИЩЕ БАРА)';
+        $('npc-modal-sub').textContent = 'Переложите хабар в Схрон — он в полной безопасности при смерти!';
+        const split = document.createElement('div');
+        split.className = 'stash-split';
+
+        const makeCol = (title, srcList, dstList, actionLabel) => {
+          const col = document.createElement('div');
+          col.className = 'inv-col';
+          col.innerHTML = `<h3>${title}</h3>`;
+          const grid = document.createElement('div');
+          grid.className = 'item-grid';
+          for (const entry of srcList) {
+            const def = window.GameData.ITEMS[entry.id];
+            if (!def) continue;
+            const c = document.createElement('div');
+            c.className = `inv-item tier-${def.tier || 1}`;
+            c.innerHTML = `<div class="item-title">${def.name}</div><div class="item-meta"><span>x${entry.count}</span><span>${actionLabel}</span></div>`;
+            c.onclick = () => {
+              const qty = def.type === 'ammo' ? Math.min(30, entry.count) : 1;
+              window.GameData.removeItemFromList(srcList, entry.id, qty);
+              window.GameData.addItemToList(dstList, entry.id, qty);
+              window.SoundEngine.playUI();
+              g.save();
+              this.renderNpcModal();
+            };
+            grid.appendChild(c);
+          }
+          col.appendChild(grid);
+          return col;
+        };
+
+        split.appendChild(makeCol('РЮКЗАК → В СХРОН', prof.backpack, prof.stash, '→'));
+        split.appendChild(makeCol('СХРОН → В РЮКЗАК', prof.stash, prof.backpack, '←'));
+        body.appendChild(split);
+      }
+    }
+  }
+
+  return { UI };
+})();
