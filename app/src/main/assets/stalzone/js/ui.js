@@ -16,6 +16,10 @@ window.GameUI = (function () {
       this.hitmarkerTimer = 0;
       this.radarCtx = $('radar-canvas').getContext('2d');
       this.pdaCtx = $('pda-map-canvas').getContext('2d');
+      this.markerCanvas = $('world-markers-canvas');
+      this.markerCtx = this.markerCanvas ? this.markerCanvas.getContext('2d') : null;
+      this._resizeMarkerCanvas();
+      window.addEventListener('resize', () => this._resizeMarkerCanvas());
 
       // Unified input state (populated by both Keyboard/Mouse and Mobile Touch!)
       this.input = {
@@ -30,6 +34,45 @@ window.GameUI = (function () {
       this._bindDOM();
       this._bindDesktopControls();
       this._bindTouchControls();
+    }
+
+    _resizeMarkerCanvas() {
+      if (!this.markerCanvas) return;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      this.markerCanvas.width = Math.max(1, Math.floor(w * dpr));
+      this.markerCanvas.height = Math.max(1, Math.floor(h * dpr));
+      this.markerW = w;
+      this.markerH = h;
+      this.markerDpr = dpr;
+    }
+
+    resetTouchControls() {
+      this.touchState.joyId = null;
+      this.touchState.lookId = null;
+      this.touchState.fireId = null;
+      this.input.moveX = 0;
+      this.input.moveZ = 0;
+      this.input.sprint = false;
+      this.input.fire = false;
+      this.input.ads = false;
+      this.input.jump = false;
+      const joyBase = $('joystick-base');
+      const joyKnob = $('joystick-knob');
+      const sprintInd = $('sprint-indicator');
+      const fireBtn = $('tbtn-fire');
+      const adsBtn = $('tbtn-ads');
+      if (joyKnob) joyKnob.style.transform = 'translate(0px, 0px)';
+      if (joyBase) {
+        joyBase.classList.add('idle');
+        joyBase.style.left = '';
+        joyBase.style.top = '';
+        joyBase.style.bottom = '';
+      }
+      if (sprintInd) sprintInd.classList.remove('active');
+      if (fireBtn) fireBtn.classList.remove('active');
+      if (adsBtn) adsBtn.classList.remove('active');
     }
 
     _bindDOM() {
@@ -277,10 +320,26 @@ window.GameUI = (function () {
       const joyBase = $('joystick-base');
       const joyKnob = $('joystick-knob');
       const sprintInd = $('sprint-indicator');
+      const lookZone = $('touch-look-zone');
+      const fireBtn = $('tbtn-fire');
+
+      const resetJoyOnly = () => {
+        this.touchState.joyId = null;
+        this.input.moveX = 0;
+        this.input.moveZ = 0;
+        this.input.sprint = false;
+        joyKnob.style.transform = 'translate(0px, 0px)';
+        joyBase.classList.add('idle');
+        joyBase.style.left = '';
+        joyBase.style.top = '';
+        joyBase.style.bottom = '';
+        sprintInd.classList.remove('active');
+      };
 
       // Left floating joystick with sprint push-forward zone
       leftZone.addEventListener('touchstart', e => {
-        if (this.openModal) return;
+        if (this.openModal || !this.game.started) return;
+        e.preventDefault();
         window.SoundEngine.ensure();
         for (const t of e.changedTouches) {
           if (this.touchState.joyId === null) {
@@ -294,52 +353,15 @@ window.GameUI = (function () {
             joyBase.style.left = (bx - 48) + 'px';
             joyBase.style.top = (by - 48) + 'px';
             joyBase.style.bottom = 'auto';
-          }
-        }
-      }, { passive: false });
-
-      leftZone.addEventListener('touchmove', e => {
-        e.preventDefault();
-        for (const t of e.changedTouches) {
-          if (t.identifier === this.touchState.joyId) {
-            const dx = t.clientX - this.touchState.joyOx;
-            const dy = t.clientY - this.touchState.joyOy;
-            const maxR = 44;
-            const dist = Math.hypot(dx, dy);
-            const cl = Math.min(maxR, dist);
-            const ang = Math.atan2(dy, dx);
-            const kx = Math.cos(ang) * cl;
-            const ky = Math.sin(ang) * cl;
-            joyKnob.style.transform = `translate(${kx}px, ${ky}px)`;
-            this.input.moveX = kx / maxR;
-            this.input.moveZ = -ky / maxR; // up = forward (+1)
-            const sprinting = (-dy > 54 && Math.abs(dx) < 42);
-            this.input.sprint = sprinting;
-            sprintInd.classList.toggle('active', sprinting);
-          }
-        }
-      }, { passive: false });
-
-      const endJoy = e => {
-        for (const t of e.changedTouches) {
-          if (t.identifier === this.touchState.joyId) {
-            this.touchState.joyId = null;
-            this.input.moveX = 0;
-            this.input.moveZ = 0;
-            this.input.sprint = false;
             joyKnob.style.transform = 'translate(0px, 0px)';
-            joyBase.classList.add('idle');
-            sprintInd.classList.remove('active');
           }
         }
-      };
-      leftZone.addEventListener('touchend', endJoy);
-      leftZone.addEventListener('touchcancel', endJoy);
+      }, { passive: false });
 
       // Right drag-to-look surface
-      const lookZone = $('touch-look-zone');
       lookZone.addEventListener('touchstart', e => {
-        if (this.openModal) return;
+        if (this.openModal || !this.game.started) return;
+        e.preventDefault();
         window.SoundEngine.ensure();
         for (const t of e.changedTouches) {
           if (this.touchState.lookId === null) {
@@ -350,30 +372,9 @@ window.GameUI = (function () {
         }
       }, { passive: false });
 
-      lookZone.addEventListener('touchmove', e => {
-        e.preventDefault();
-        const sens = 0.0046 * this.game.profile.settings.sensitivity * (this.input.ads ? 0.52 : 1.0);
-        for (const t of e.changedTouches) {
-          if (t.identifier === this.touchState.lookId) {
-            this.input.lookDX += (t.clientX - this.touchState.lookX) * sens;
-            this.input.lookDY += (t.clientY - this.touchState.lookY) * sens;
-            this.touchState.lookX = t.clientX;
-            this.touchState.lookY = t.clientY;
-          }
-        }
-      }, { passive: false });
-
-      const endLook = e => {
-        for (const t of e.changedTouches) {
-          if (t.identifier === this.touchState.lookId) this.touchState.lookId = null;
-        }
-      };
-      lookZone.addEventListener('touchend', endLook);
-      lookZone.addEventListener('touchcancel', endLook);
-
       // FIRE button (supports drag-to-aim while firing — essential for mobile FPS!)
-      const fireBtn = $('tbtn-fire');
       fireBtn.addEventListener('touchstart', e => {
+        if (this.openModal || !this.game.started) return;
         e.preventDefault(); e.stopPropagation();
         window.SoundEngine.ensure();
         const t = e.changedTouches[0];
@@ -383,29 +384,96 @@ window.GameUI = (function () {
         this.input.fire = true;
         fireBtn.classList.add('active');
       }, { passive: false });
-      fireBtn.addEventListener('touchmove', e => {
-        e.preventDefault(); e.stopPropagation();
-        const sens = 0.0042 * this.game.profile.settings.sensitivity * (this.input.ads ? 0.52 : 1.0);
+
+      // Global window-level touch tracking guarantees joystick/look/fire NEVER get stuck!
+      // IMPORTANT: Only calls preventDefault() when a gameplay touch is active and no modal is open,
+      // so native scrolling inside Trader/Fence/Inventory/PDA modals ALWAYS works smoothly.
+      window.addEventListener('touchmove', e => {
+        if (this.openModal || !this.game.started) return;
+        const ts = this.touchState;
+        if (ts.joyId === null && ts.lookId === null && ts.fireId === null) return;
+
+        let handled = false;
+        let joyAlive = false, lookAlive = false, fireAlive = false;
+        for (let i = 0; i < e.touches.length; i++) {
+          const id = e.touches[i].identifier;
+          if (id === ts.joyId) joyAlive = true;
+          if (id === ts.lookId) lookAlive = true;
+          if (id === ts.fireId) fireAlive = true;
+        }
+        if (ts.joyId !== null && !joyAlive) resetJoyOnly();
+        if (ts.lookId !== null && !lookAlive) ts.lookId = null;
+        if (ts.fireId !== null && !fireAlive) {
+          ts.fireId = null;
+          this.input.fire = false;
+          fireBtn.classList.remove('active');
+        }
+
+        const sensLook = 0.0046 * this.game.profile.settings.sensitivity * (this.input.ads ? 0.52 : 1.0);
+        const sensFire = 0.0042 * this.game.profile.settings.sensitivity * (this.input.ads ? 0.52 : 1.0);
+
         for (const t of e.changedTouches) {
-          if (t.identifier === this.touchState.fireId) {
-            this.input.lookDX += (t.clientX - this.touchState.fireX) * sens;
-            this.input.lookDY += (t.clientY - this.touchState.fireY) * sens;
-            this.touchState.fireX = t.clientX;
-            this.touchState.fireY = t.clientY;
+          if (t.identifier === ts.joyId) {
+            handled = true;
+            const dx = t.clientX - ts.joyOx;
+            const dy = t.clientY - ts.joyOy;
+            const maxR = 44;
+            const dist = Math.hypot(dx, dy);
+            const cl = Math.min(maxR, dist);
+            const ang = Math.atan2(dy, dx);
+            const kx = Math.cos(ang) * cl;
+            const ky = Math.sin(ang) * cl;
+            joyKnob.style.transform = `translate(${kx}px, ${ky}px)`;
+            this.input.moveX = kx / maxR;
+            this.input.moveZ = -ky / maxR;
+            const sprinting = (-dy > 54 && Math.abs(dx) < 42);
+            this.input.sprint = sprinting;
+            sprintInd.classList.toggle('active', sprinting);
+          } else if (t.identifier === ts.lookId) {
+            handled = true;
+            this.input.lookDX += (t.clientX - ts.lookX) * sensLook;
+            this.input.lookDY += (t.clientY - ts.lookY) * sensLook;
+            ts.lookX = t.clientX;
+            ts.lookY = t.clientY;
+          } else if (t.identifier === ts.fireId) {
+            handled = true;
+            this.input.lookDX += (t.clientX - ts.fireX) * sensFire;
+            this.input.lookDY += (t.clientY - ts.fireY) * sensFire;
+            ts.fireX = t.clientX;
+            ts.fireY = t.clientY;
           }
         }
+        if (handled) e.preventDefault();
       }, { passive: false });
-      const endFire = e => {
+
+      const endAnyTouch = e => {
+        const ts = this.touchState;
         for (const t of e.changedTouches) {
-          if (t.identifier === this.touchState.fireId) {
-            this.touchState.fireId = null;
+          if (t.identifier === ts.joyId) resetJoyOnly();
+          if (t.identifier === ts.lookId) ts.lookId = null;
+          if (t.identifier === ts.fireId) {
+            ts.fireId = null;
+            this.input.fire = false;
+            fireBtn.classList.remove('active');
+          }
+        }
+        // Double-check against active e.touches list in case Android dropped a touchcancel
+        if (e.touches.length === 0) {
+          if (ts.joyId !== null) resetJoyOnly();
+          ts.lookId = null;
+          if (ts.fireId !== null) {
+            ts.fireId = null;
             this.input.fire = false;
             fireBtn.classList.remove('active');
           }
         }
       };
-      fireBtn.addEventListener('touchend', endFire);
-      fireBtn.addEventListener('touchcancel', endFire);
+      window.addEventListener('touchend', endAnyTouch, { passive: true });
+      window.addEventListener('touchcancel', endAnyTouch, { passive: true });
+      window.addEventListener('blur', () => this.resetTouchControls());
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) this.resetTouchControls();
+      });
 
       // ADS toggle button
       $('tbtn-ads').addEventListener('touchstart', e => {
@@ -454,10 +522,9 @@ window.GameUI = (function () {
         return;
       }
       this.closeAllModals();
+      this.resetTouchControls();
       this.openModal = modalId;
       $(modalId).classList.remove('hidden');
-      this.input.fire = false;
-      this.input.ads = false;
       document.exitPointerLock?.();
 
       if (modalId === 'modal-inventory') this.renderInventory();
@@ -467,28 +534,27 @@ window.GameUI = (function () {
     openNpcModal(npcId) {
       this.activeNpcId = npcId;
       this.closeAllModals();
+      this.resetTouchControls();
       this.openModal = 'modal-npc';
       $('modal-npc').classList.remove('hidden');
-      this.input.fire = false;
-      this.input.ads = false;
       document.exitPointerLock?.();
       this.renderNpcModal();
     }
 
     openLootModal(obj, kind) {
       this.closeAllModals();
+      this.resetTouchControls();
       this.activeLoot = { obj, kind };
       this.mcHand = null;
       this.openModal = 'modal-loot';
       $('modal-loot').classList.remove('hidden');
-      this.input.fire = false;
-      this.input.ads = false;
       document.exitPointerLock?.();
       this.renderLootModal();
     }
 
     showDeathModal(reason) {
       this.closeAllModals();
+      this.resetTouchControls();
       this.openModal = 'modal-death';
       $('death-reason').textContent = 'Причина: ' + reason;
       const fac = window.GameData.FACTIONS[this.game.profile.faction] || window.GameData.FACTIONS.stalker;
@@ -508,6 +574,7 @@ window.GameUI = (function () {
       this.activeLoot = null;
       this.mcHand = null;
       this.openModal = null;
+      this.resetTouchControls();
     }
 
     // === MINECRAFT-STYLE SLOT GRID RENDERER (Tap-Pick, Tap-Place/Swap/Stack, Double-Tap Quick-Transfer, Drag & Drop) ===
@@ -847,7 +914,10 @@ window.GameUI = (function () {
           $('det-text').textContent = `ЧАСТОТА: ~${Math.round(dSig)} м`;
         } else {
           $('det-mode').textContent = 'АРТЕФАКТЫ';
-          $('det-text').textContent = sig > 0.08 ? `ОТКЛИК: ${Math.round(sig * 100)}%` : 'ЧИСТО В РАДИУСЕ';
+          const hasArts = g.world.artifacts.some(a => !a.collected);
+          $('det-text').textContent = sig > 0.08
+            ? `ОТКЛИК: ${Math.round(sig * 100)}%`
+            : (hasArts ? 'ЧИСТО В РАДИУСЕ' : 'ЖДИТЕ ВЫБРОСА (АРТЫ ПОСЛЕ ВЫБРОСА)');
         }
       }
 
@@ -866,6 +936,144 @@ window.GameUI = (function () {
 
       // === RADAR RENDER + 50m HUMAN COUNTER & ICONIC BEEP ===
       this._renderRadar();
+    }
+
+    clearWorldMarkers() {
+      if (!this.markerCtx || !this.markerCanvas) return;
+      this.markerCtx.clearRect(0, 0, this.markerCanvas.width, this.markerCanvas.height);
+    }
+
+    // === 3D WORLD-SPACE STALCRAFT-STYLE HEXAGONAL SPOT MARKERS (DOGS/MUTANTS & CHECKPOINTS) ===
+    renderWorldMarkers(nowSec) {
+      const ctx = this.markerCtx;
+      if (!ctx || !this.markerCanvas) return;
+      const dpr = this.markerDpr || 1;
+      const W = this.markerW || window.innerWidth;
+      const H = this.markerH || window.innerHeight;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      if (this.openModal) return;
+
+      const g = this.game;
+      const p = g.player;
+      const pFac = g.profile.faction || 'stalker';
+      const pulse = 0.88 + Math.sin(nowSec * 3.4) * 0.12;
+
+      for (const sp of g.world.spots) {
+        const alive = g.entities.getAliveCountForSpot(sp.id);
+        if (alive <= 0) continue;
+
+        const dist = Math.hypot(sp.x - p.x, sp.z - p.z);
+        if (dist > 230 || dist < 5) continue;
+
+        const isMutant = (sp.kind === 'dogs' || sp.kind === 'boars' || sp.kind === 'bloodsucker');
+        const isFriendly = (!isMutant && sp.kind === (pFac === 'bandit' ? 'bandits' : 'stalkers'));
+        const gy = g.world.getHeight(sp.x, sp.z);
+        const floatY = gy + (isMutant ? 4.4 : 6.4) + Math.sin(nowSec * 2.1 + sp.x) * 0.18;
+
+        const proj = g.engine.projectToScreen(sp.x, floatY, sp.z, W, H);
+        if (!proj || !proj.inView) continue;
+
+        // Distance-scaled crisp size
+        const sc = Math.max(0.68, Math.min(1.12, 1.18 - dist / 260));
+        const R = 16 * sc; // Hexagon outer radius
+        const strokeCol = isFriendly ? '#5be07d' : '#ff5436';
+        const glowCol = isFriendly ? 'rgba(91, 224, 125, 0.55)' : 'rgba(255, 84, 54, 0.62)';
+        const fillCol = isFriendly ? 'rgba(10, 28, 16, 0.72)' : 'rgba(28, 11, 8, 0.74)';
+
+        ctx.save();
+        ctx.translate(proj.x, proj.y);
+
+        // 1. Soft dark backdrop + Glowing pointy-top Hexagon
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = -Math.PI / 2 + (i * Math.PI) / 3;
+          const hx = Math.cos(a) * R;
+          const hy = Math.sin(a) * R;
+          if (i === 0) ctx.moveTo(hx, hy);
+          else ctx.lineTo(hx, hy);
+        }
+        ctx.closePath();
+        ctx.fillStyle = fillCol;
+        ctx.fill();
+
+        ctx.shadowColor = glowCol;
+        ctx.shadowBlur = 10 * pulse;
+        ctx.strokeStyle = strokeCol;
+        ctx.lineWidth = Math.max(1.8, 2.2 * sc);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // 2. Crisp 4 outer off-white/cream corner brackets (exact photo style!)
+        const brX = R * 1.18;
+        const brY = R * 1.14;
+        const brL = 4.8 * sc;
+        ctx.strokeStyle = 'rgba(245, 240, 228, 0.90)';
+        ctx.lineWidth = Math.max(1.4, 1.7 * sc);
+        const corners = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+        for (const [cx, cy] of corners) {
+          ctx.beginPath();
+          ctx.moveTo(cx * brX, cy * (brY - brL));
+          ctx.lineTo(cx * brX, cy * brY);
+          ctx.lineTo(cx * (brX - brL), cy * brY);
+          ctx.stroke();
+        }
+
+        // 3. Center icon: Paw print for dogs/mutants, Outpost Shield/Fort for Checkpoints!
+        ctx.fillStyle = strokeCol;
+        ctx.strokeStyle = strokeCol;
+        if (isMutant) {
+          // Paw main pad
+          ctx.beginPath();
+          ctx.ellipse(0, 2.8 * sc, 4.4 * sc, 3.6 * sc, 0, 0, Math.PI * 2);
+          ctx.fill();
+          // 4 toe pads arched above
+          const toes = [
+            [-5.0, -2.0, -0.35],
+            [-1.9, -4.6, -0.12],
+            [ 1.9, -4.6,  0.12],
+            [ 5.0, -2.0,  0.35]
+          ];
+          for (const [tx, ty, rot] of toes) {
+            ctx.beginPath();
+            ctx.ellipse(tx * sc, ty * sc, 1.85 * sc, 2.55 * sc, rot, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else {
+          // Fortified Checkpoint / Outpost shield emblem + roof chevron
+          ctx.beginPath();
+          ctx.moveTo(0, -6.8 * sc);
+          ctx.lineTo(6.2 * sc, -3.6 * sc);
+          ctx.lineTo(5.4 * sc, 2.4 * sc);
+          ctx.lineTo(0, 7.2 * sc);
+          ctx.lineTo(-5.4 * sc, 2.4 * sc);
+          ctx.lineTo(-6.2 * sc, -3.6 * sc);
+          ctx.closePath();
+          ctx.lineWidth = Math.max(1.5, 1.8 * sc);
+          ctx.stroke();
+          // Inner outpost cross / turret tower silhouette
+          ctx.fillRect(-2.6 * sc, -2.0 * sc, 5.2 * sc, 4.8 * sc);
+          ctx.fillRect(-3.6 * sc, -4.0 * sc, 2.0 * sc, 2.2 * sc);
+          ctx.fillRect( 1.6 * sc, -4.0 * sc, 2.0 * sc, 2.2 * sc);
+        }
+
+        // 4. Compact distance & short type label below marker
+        const tag = sp.kind === 'dogs' ? 'ПСЫ'
+          : sp.kind === 'boars' ? 'КАБАНЫ'
+          : sp.kind === 'bloodsucker' ? 'КРОВОСОС'
+          : (isFriendly ? 'КПП СОЮЗ' : 'БЛОКПОСТ');
+        ctx.font = `700 ${Math.round(9.5 * sc)}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        const label = `${tag} ${Math.round(dist)}м`;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.72)';
+        const tw = ctx.measureText(label).width;
+        ctx.fillRect(-tw * 0.5 - 3, brY + 3, tw + 6, 12 * sc);
+        ctx.fillStyle = isFriendly ? '#9ff5b3' : '#ffd2c8';
+        ctx.fillText(label, 0, brY + 4);
+
+        ctx.restore();
+      }
     }
 
     _renderRadar() {
@@ -1426,6 +1634,7 @@ window.GameUI = (function () {
       const npcId = this.activeNpcId;
       $('npc-money-label').textContent = prof.money.toLocaleString('ru-RU') + ' ₽';
       const body = $('npc-modal-body');
+      const prevScroll = body.scrollTop;
       body.innerHTML = '';
 
       if (npcId === 'trader') {
@@ -1653,6 +1862,7 @@ window.GameUI = (function () {
         split.appendChild(stPane);
         body.appendChild(split);
       }
+      body.scrollTop = prevScroll;
     }
   }
 

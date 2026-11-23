@@ -26,13 +26,27 @@ window.Engine3D = (function () {
       out[3] = 0;  out[7] = 0;  out[11] = 0;  out[15] = 1;
       return out;
     },
-    trs(out, tx, ty, tz, ry, rx, sx, sy, sz) {
+    trs(out, tx, ty, tz, ry, rx, sx, sy, sz, rz = 0) {
       const cy = Math.cos(ry), siny = Math.sin(ry);
       const cx = Math.cos(rx), sinx = Math.sin(rx);
-      out[0] = cy * sx;    out[4] = siny * sinx * sy; out[8]  = siny * cx * sz; out[12] = tx;
-      out[1] = 0;          out[5] = cx * sy;          out[9]  = -sinx * sz;     out[13] = ty;
-      out[2] = -siny * sx; out[6] = cy * sinx * sy;   out[10] = cy * cx * sz;   out[14] = tz;
-      out[3] = 0;          out[7] = 0;                out[11] = 0;              out[15] = 1;
+      if (rz === 0) {
+        out[0] = cy * sx;    out[4] = siny * sinx * sy; out[8]  = siny * cx * sz; out[12] = tx;
+        out[1] = 0;          out[5] = cx * sy;          out[9]  = -sinx * sz;     out[13] = ty;
+        out[2] = -siny * sx; out[6] = cy * sinx * sy;   out[10] = cy * cx * sz;   out[14] = tz;
+      } else {
+        const cz = Math.cos(rz), sinz = Math.sin(rz);
+        out[0] = (cy * cz + siny * sinx * sinz) * sx;
+        out[1] = (cx * sinz) * sx;
+        out[2] = (-siny * cz + cy * sinx * sinz) * sx;
+        out[4] = (-cy * sinz + siny * sinx * cz) * sy;
+        out[5] = (cx * cz) * sy;
+        out[6] = (siny * sinz + cy * sinx * cz) * sy;
+        out[8] = (siny * cx) * sz;
+        out[9] = (-sinx) * sz;
+        out[10] = (cy * cx) * sz;
+        out[12] = tx; out[13] = ty; out[14] = tz;
+      }
+      out[3] = 0; out[7] = 0; out[11] = 0; out[15] = 1;
       return out;
     }
   };
@@ -57,6 +71,9 @@ window.Engine3D = (function () {
     uniform vec3 uZenith;
     uniform vec3 uHorizon;
     uniform vec3 uCloudCol;
+    uniform vec3 uSunDir;
+    uniform vec3 uSunCol;
+    uniform float uNight;
     uniform float uLightning;
 
     float hash(vec2 p) {
@@ -84,7 +101,6 @@ window.Engine3D = (function () {
     }
 
     void main() {
-      // Reconstruct view ray direction in world space
       vec3 localDir = normalize(vec3(vScreen.x * uAspect * 0.72, vScreen.y * 0.72, -1.0));
       float cp = cos(uPitch), sp = sin(uPitch);
       vec3 d1 = vec3(localDir.x, localDir.y * cp - localDir.z * sp, localDir.y * sp + localDir.z * cp);
@@ -92,20 +108,40 @@ window.Engine3D = (function () {
       vec3 dir = normalize(vec3(d1.x * cy + d1.z * sy, d1.y, -d1.x * sy + d1.z * cy));
 
       float elev = clamp(dir.y, 0.0, 1.0);
-      vec3 col = mix(uHorizon, uZenith, pow(elev, 0.52));
+      vec3 col = mix(uHorizon, uZenith, pow(elev, 0.55));
 
       if (dir.y > -0.04) {
         vec2 uv = dir.xz / (max(dir.y, 0.06) + 0.18) * 1.35;
         float c1 = fbm(uv + vec2(uTime * 0.018, uTime * 0.008));
         float c2 = fbm(uv * 2.1 - vec2(uTime * 0.025, 0.0));
-        float cloud = smoothstep(0.38, 0.78, c1 * 0.7 + c2 * 0.35);
+        float cloud = smoothstep(0.40, 0.78, c1 * 0.7 + c2 * 0.35);
         float cloudFade = smoothstep(-0.02, 0.24, dir.y);
-        col = mix(col, uCloudCol, cloud * cloudFade * 0.72);
 
-        // Pale eerie twilight glow peeking behind clouds
-        vec3 moonDir = normalize(vec3(0.45, 0.28, -0.82));
-        float glow = pow(max(dot(dir, moonDir), 0.0), 16.0);
-        col += vec3(0.42, 0.48, 0.44) * glow * (1.0 - cloud * 0.65) * 0.55;
+        // Moving Sun disc + atmospheric glow (day / dawn / sunset)
+        vec3 sDir = normalize(uSunDir);
+        float sunDot = max(dot(dir, sDir), 0.0);
+        float sunVis = smoothstep(-0.06, 0.14, sDir.y) * (1.0 - uNight * 0.85);
+        float sunHalo = pow(sunDot, 12.0) * 0.42 + pow(sunDot, 96.0) * 0.85;
+        float sunDisc = smoothstep(0.9982, 0.9994, sunDot);
+        col += uSunCol * (sunHalo + sunDisc * 1.6) * sunVis * (1.0 - cloud * 0.55);
+
+        // Moon & twinkling stars during Night
+        if (uNight > 0.02) {
+          vec3 moonDir = normalize(vec3(-sDir.x, max(0.24, -sDir.y), -sDir.z));
+          float moonDot = max(dot(dir, moonDir), 0.0);
+          float moonDisc = smoothstep(0.9985, 0.9994, moonDot);
+          float moonHalo = pow(moonDot, 36.0) * 0.35;
+          col += vec3(0.75, 0.84, 1.0) * (moonDisc * 1.15 + moonHalo) * uNight * (1.0 - cloud * 0.7);
+
+          vec2 starUV = floor(dir.xz / (max(dir.y, 0.08) + 0.25) * 62.0);
+          float st = hash(starUV);
+          if (st > 0.9935 && dir.y > 0.08) {
+            float tw = 0.65 + 0.35 * sin(uTime * 2.8 + st * 90.0);
+            col += vec3(0.85, 0.90, 1.0) * tw * uNight * smoothstep(0.08, 0.28, dir.y) * (1.0 - cloud * 0.85);
+          }
+        }
+
+        col = mix(col, uCloudCol, cloud * cloudFade * 0.68);
       }
 
       col += vec3(0.75, 0.82, 0.92) * uLightning * 0.55;
@@ -361,25 +397,66 @@ window.Engine3D = (function () {
           ctx.fillRect(x, 0, 3, S);
         }
         break;
-      case 'leaves': { // 256x256 organic clustered autumn swamp leaves
-        const LS = 256;
-        c.width = LS; c.height = LS;
-        ctx.clearRect(0, 0, LS, LS);
-        const cols = ['#564422', '#704b22', '#3a4b29', '#493c21', '#825525', '#2f3d23'];
-        for (let i = 0; i < 240; i++) {
-          const lx = 18 + Math.random() * (LS - 36);
-          const ly = 18 + Math.random() * (LS - 36);
+      case 'leaves': { // Solid opaque dense leafy canopy (zero see-through alpha artifacts!)
+        fillNoise(46, 74, 34, 24, 4);
+        const cols = ['#2f5222', '#446b2c', '#5b7a32', '#26421d', '#6b7232', '#395e26'];
+        for (let i = 0; i < 220; i++) {
+          const lx = Math.random() * S;
+          const ly = Math.random() * S;
           const rx = 5 + Math.random() * 8;
-          const ry = 3 + Math.random() * 4.5;
-          ctx.save();
-          ctx.translate(lx, ly);
-          ctx.rotate(Math.random() * Math.PI);
+          const ry = 4 + Math.random() * 6;
           ctx.fillStyle = cols[i % cols.length];
           ctx.beginPath();
-          ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+          ctx.ellipse(lx, ly, rx, ry, Math.random() * Math.PI, 0, Math.PI * 2);
           ctx.fill();
-          ctx.restore();
         }
+        break;
+      }
+      case 'pine': { // Dense evergreen conifer needles for Zone pines
+        fillNoise(26, 52, 28, 18, 4);
+        const pcols = ['#1b3b20', '#244d28', '#2f5e30', '#16301a', '#386a35'];
+        for (let i = 0; i < 240; i++) {
+          ctx.fillStyle = pcols[i % pcols.length];
+          const px = Math.random() * S, py = Math.random() * S;
+          ctx.fillRect(px, py, 3 + Math.random() * 5, 7 + Math.random() * 9);
+        }
+        break;
+      }
+      case 'sandbag': { // Stacked burlap military sandbags for checkpoints
+        fillNoise(138, 124, 92, 18, 4);
+        ctx.strokeStyle = 'rgba(42, 34, 22, 0.72)';
+        ctx.lineWidth = 3;
+        const rows = 4;
+        const rh = S / rows;
+        for (let r = 0; r < rows; r++) {
+          const off = (r % 2) * 32;
+          for (let x = -32; x < S + 32; x += 64) {
+            ctx.fillStyle = (r + (x / 64)) % 2 === 0 ? 'rgba(155,140,104,0.35)' : 'rgba(115,102,74,0.35)';
+            ctx.fillRect(x + off + 2, r * rh + 2, 60, rh - 4);
+            ctx.strokeRect(x + off + 2, r * rh + 2, 60, rh - 4);
+          }
+        }
+        break;
+      }
+      case 'fence_po2': { // Classic Soviet PO-2 diamond-waffle concrete fence slab
+        fillNoise(118, 120, 114, 18, 4);
+        ctx.strokeStyle = 'rgba(48, 52, 48, 0.62)';
+        ctx.lineWidth = 3;
+        const step = 32;
+        for (let y = 0; y < S; y += step) {
+          for (let x = 0; x < S; x += step) {
+            ctx.beginPath();
+            ctx.moveTo(x + step * 0.5, y + 3);
+            ctx.lineTo(x + step - 3, y + step * 0.5);
+            ctx.lineTo(x + step * 0.5, y + step - 3);
+            ctx.lineTo(x + 3, y + step * 0.5);
+            ctx.closePath();
+            ctx.stroke();
+          }
+        }
+        ctx.strokeStyle = 'rgba(35,38,36,0.7)';
+        ctx.lineWidth = 6;
+        ctx.strokeRect(3, 3, S - 6, S - 6);
         break;
       }
       case 'grass_tuft': { // 256x256 realistic dense tapered wild grass, sedge & autumn reed tuft!
@@ -497,8 +574,8 @@ window.Engine3D = (function () {
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
-    const isAlphaCutout = (kind === 'grass_tuft' || kind === 'leaves' || kind === 'camo_net' || kind === 'wire');
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, isAlphaCutout ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR_MIPMAP_LINEAR);
+    const isAlphaCutout = (kind === 'grass_tuft' || kind === 'camo_net' || kind === 'wire');
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, isAlphaCutout ? gl.CLAMP_TO_EDGE : gl.REPEAT);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, isAlphaCutout ? gl.CLAMP_TO_EDGE : gl.REPEAT);
@@ -551,6 +628,9 @@ window.Engine3D = (function () {
         uZenith: gl.getUniformLocation(this.skyProg, 'uZenith'),
         uHorizon: gl.getUniformLocation(this.skyProg, 'uHorizon'),
         uCloudCol: gl.getUniformLocation(this.skyProg, 'uCloudCol'),
+        uSunDir: gl.getUniformLocation(this.skyProg, 'uSunDir'),
+        uSunCol: gl.getUniformLocation(this.skyProg, 'uSunCol'),
+        uNight: gl.getUniformLocation(this.skyProg, 'uNight'),
         uLightning: gl.getUniformLocation(this.skyProg, 'uLightning')
       };
       this.skyVBO = gl.createBuffer();
@@ -592,7 +672,8 @@ window.Engine3D = (function () {
       this.textures = {};
       const kinds = [
         'grass', 'swamp', 'asphalt', 'concrete', 'brick', 'rust', 'crate',
-        'wood', 'bark', 'leaves', 'grass_tuft', 'camo_net', 'camo_armor',
+        'wood', 'bark', 'leaves', 'pine', 'sandbag', 'fence_po2',
+        'grass_tuft', 'camo_net', 'camo_armor',
         'gunmetal', 'roof', 'hazard', 'wire', 'white'
       ];
       for (const k of kinds) this.textures[k] = makeProceduralTexture(gl, k);
@@ -625,20 +706,22 @@ window.Engine3D = (function () {
       this.terrainHeightFn = () => 0;
 
       this.projMat = M4.create();
+      this.worldProjMat = M4.create();
       this.viewMat = M4.create();
       this.modelMat = M4.create();
       this.idMat = M4.identity(M4.create());
 
-      // Twilight Swamp default lighting
-      this.skyZenith = [0.09, 0.12, 0.14];
-      this.skyHorizon = [0.22, 0.27, 0.24];
-      this.skyClouds = [0.16, 0.19, 0.19];
-      this.fogColor = [0.20, 0.25, 0.22];
-      this.fogDensity = 0.020;
+      // Daytime default lighting (dynamically driven by 24h Day/Night cycle)
+      this.skyZenith = [0.22, 0.42, 0.66];
+      this.skyHorizon = [0.56, 0.68, 0.76];
+      this.skyClouds = [0.78, 0.82, 0.85];
+      this.fogColor = [0.50, 0.60, 0.66];
+      this.fogDensity = 0.009;
+      this.nightFactor = 0.0;
       this.lightning = 0;
-      this.sunDir = [0.45, 0.55, -0.65];
-      this.sunColor = [0.58, 0.62, 0.56];
-      this.ambient = [0.34, 0.38, 0.36];
+      this.sunDir = [0.52, 0.72, -0.46];
+      this.sunColor = [1.05, 0.98, 0.86];
+      this.ambient = [0.42, 0.46, 0.50];
 
       gl.enable(gl.DEPTH_TEST);
       gl.enable(gl.CULL_FACE);
@@ -844,6 +927,9 @@ window.Engine3D = (function () {
       gl.uniform3fv(this.skyLoc.uZenith, this.skyZenith);
       gl.uniform3fv(this.skyLoc.uHorizon, this.skyHorizon);
       gl.uniform3fv(this.skyLoc.uCloudCol, this.skyClouds);
+      gl.uniform3fv(this.skyLoc.uSunDir, this.sunDir);
+      gl.uniform3fv(this.skyLoc.uSunCol, this.sunColor);
+      gl.uniform1f(this.skyLoc.uNight, this.nightFactor || 0.0);
       gl.uniform1f(this.skyLoc.uLightning, this.lightning);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       gl.depthMask(true);
@@ -851,6 +937,7 @@ window.Engine3D = (function () {
 
       // 2. Render 3D World with higher depth precision (near=0.16 prevents Z-fighting!)
       M4.perspective(this.projMat, fovDeg * Math.PI / 180, this.aspect, 0.16, 320);
+      this.worldProjMat.set(this.projMat);
       M4.cameraView(this.viewMat, camX, camY, camZ, yaw, pitch);
 
       gl.useProgram(this.prog);
@@ -915,9 +1002,9 @@ window.Engine3D = (function () {
       gl.vertexAttribPointer(this.loc.aCol, 3, gl.FLOAT, false, stride, 32);
     }
 
-    drawBox(x, y, z, sx, sy, sz, ry, rx, tint, texName = 'white', emissive = 0, depthWrite = true, spec = 0.18) {
+    drawBox(x, y, z, sx, sy, sz, ry, rx, tint, texName = 'white', emissive = 0, depthWrite = true, spec = 0.18, rz = 0) {
       const gl = this.gl;
-      M4.trs(this.modelMat, x, y, z, ry, rx, sx, sy, sz);
+      M4.trs(this.modelMat, x, y, z, ry, rx, sx, sy, sz, rz);
       gl.uniformMatrix4fv(this.loc.uModel, false, this.modelMat);
       gl.bindTexture(gl.TEXTURE_2D, this.textures[texName] || this.textures.white);
       gl.uniform4fv(this.loc.uTint, tint);
@@ -957,8 +1044,8 @@ window.Engine3D = (function () {
       this._bindMesh(this.unitVBO, this.unitIBO);
     }
 
-    drawViewPart(x, y, z, sx, sy, sz, ry, rx, tint, texName = 'gunmetal', emissive = 0, spec = 0.48, depthWrite = true) {
-      this.drawBox(x, y, z, sx, sy, sz, ry, rx, tint, texName, emissive, depthWrite, spec);
+    drawViewPart(x, y, z, sx, sy, sz, ry, rx, tint, texName = 'gunmetal', emissive = 0, spec = 0.48, depthWrite = true, rz = 0) {
+      this.drawBox(x, y, z, sx, sy, sz, ry, rx, tint, texName, emissive, depthWrite, spec, rz);
     }
 
     // Heightmap + AABB Collision Physics
@@ -1063,6 +1150,31 @@ window.Engine3D = (function () {
         }
       }
       return false;
+    }
+
+    // Project a 3D world point onto 2D viewport CSS pixels (returns null if behind camera)
+    projectToScreen(wx, wy, wz, viewW, viewH) {
+      const v = this.viewMat;
+      const p = this.worldProjMat;
+      const vx = v[0] * wx + v[4] * wy + v[8] * wz + v[12];
+      const vy = v[1] * wx + v[5] * wy + v[9] * wz + v[13];
+      const vz = v[2] * wx + v[6] * wy + v[10] * wz + v[14];
+      const vw = v[3] * wx + v[7] * wy + v[11] * wz + v[15];
+      if (vz >= -0.25) return null;
+
+      const cx = p[0] * vx + p[4] * vy + p[8] * vz + p[12] * vw;
+      const cy = p[1] * vx + p[5] * vy + p[9] * vz + p[13] * vw;
+      const cw = p[3] * vx + p[7] * vy + p[11] * vz + p[15] * vw;
+      if (cw <= 0.001) return null;
+
+      const ndcX = cx / cw;
+      const ndcY = cy / cw;
+      return {
+        x: (ndcX * 0.5 + 0.5) * viewW,
+        y: (1.0 - (ndcY * 0.5 + 0.5)) * viewH,
+        inView: ndcX >= -1.08 && ndcX <= 1.08 && ndcY >= -1.08 && ndcY <= 1.08,
+        depth: -vz
+      };
     }
   }
 

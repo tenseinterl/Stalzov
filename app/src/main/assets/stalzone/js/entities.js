@@ -15,13 +15,22 @@ window.EntityManager = (function () {
 
       this.emission = {
         phase: 'calm',
-        timer: 340,
+        timer: 180,
         intensity: 0,
         lightningFlash: 0,
         thunderTimer: 2
       };
 
       this.spawnAllSpots();
+    }
+
+    getAliveCountForSpot(spotId) {
+      let n = 0;
+      for (let i = 0; i < this.enemies.length; i++) {
+        const e = this.enemies[i];
+        if (e.spotId === spotId && e.hp > 0) n++;
+      }
+      return n;
     }
 
     spawnAllSpots() {
@@ -362,13 +371,13 @@ window.EntityManager = (function () {
           game.damagePlayer(dt * 12, 'Выброс (открытое пространство)', true);
         }
         if (E.timer <= 0) {
-          E.phase = 'calm'; E.timer = 350;
+          E.phase = 'calm'; E.timer = 260;
           window.SoundEngine.setEmissionSiren(false);
-          this.world.respawnAnomaliesAndArtifacts();
+          this.world.respawnAnomaliesAndArtifacts(true);
           this.world.refillWorldStashes();
           game.profile.stats.emissionsSurvived++;
           game.save();
-          game.toast('☀ Выброс прошёл! Аномалии, артефакты и тайники обновлены!', 'good');
+          game.toast('⚡ ВЫБРОС ПРОШЁЛ! В аномалиях появились свежие артефакты!', 'good');
         }
       }
     }

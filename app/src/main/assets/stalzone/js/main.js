@@ -775,35 +775,51 @@
         return;
       }
 
-      // === 3. DETAILED FIREARMS WITH GLOVED HANDS & SPECULAR STEEL ===
+      // === 3. DETAILED FIREARMS WITH PROPERLY ALIGNED GLOVED HANDS & SLEEVES ===
       const reloadDrop = p.reloadTimer > 0 ? Math.sin((p.reloadTimer / wpn.reloadTime) * Math.PI) * 0.22 : 0;
-      const bx = (0.24 * (1 - p.adsBlend)) + bobX;
-      const by = (-0.21 * (1 - p.adsBlend) - 0.122 * p.adsBlend) - bobY - reloadDrop;
-      const bz = -0.50 + p.recoilKick * 0.085 + p.adsBlend * 0.09;
-      const tx = p.recoilKick * 0.13 - reloadDrop * 1.3;
+      const bx = (0.22 * (1 - p.adsBlend)) + bobX;
+      const by = (-0.205 * (1 - p.adsBlend) - 0.122 * p.adsBlend) - bobY - reloadDrop;
+      const bz = -0.49 + p.recoilKick * 0.08 + p.adsBlend * 0.085;
+      const tx = p.recoilKick * 0.13 - reloadDrop * 1.25;
 
       const steel = [0.44, 0.48, 0.52, 1];
       const darkSteel = [0.26, 0.29, 0.32, 1];
       const railCol = [0.56, 0.60, 0.64, 1];
+      const cuffCol = [0.18, 0.20, 0.19, 1];
       const wood = (wpn.id === 'svd' || wpn.id === 'vss') ? [0.64, 0.38, 0.22, 1]
-        : (wpn.id === 'ak74m' ? [0.48, 0.32, 0.20, 1] : [0.28, 0.30, 0.32, 1]);
-
-      // Gloved Right Hand + Camo Sleeve
-      E.drawViewPart(bx + 0.05, by - 0.15, bz + 0.24, 0.10, 0.10, 0.24, -0.15, tx + 0.12, sleeveCol, 'camo_armor', 0, 0.18);
-      E.drawViewPart(bx + 0.01, by - 0.07, bz + 0.11, 0.078, 0.09, 0.09, 0, tx, gloveCol, 'asphalt', 0, 0.38);
+        : (wpn.id === 'ak74m' ? [0.50, 0.32, 0.19, 1] : [0.28, 0.30, 0.32, 1]);
 
       if (wpn.id === 'pm') {
-        // Detailed Makarov Pistol (slide serrations, bakelite brown grip, sight dots)
+        // Makarov Pistol: Two-handed tactical grip (right trigger hand + left support palm)
+        // Right forearm angled inward from bottom-right to pistol grip
+        E.drawViewPart(bx + 0.055, by - 0.115, bz + 0.185, 0.086, 0.086, 0.22, 0.42, tx + 0.38, sleeveCol, 'camo_armor', 0, 0.18);
+        E.drawViewPart(bx + 0.018, by - 0.072, bz + 0.110, 0.074, 0.074, 0.055, 0.22, tx + 0.25, cuffCol, 'asphalt', 0, 0.32);
+        E.drawViewPart(bx + 0.004, by - 0.052, bz + 0.080, 0.068, 0.082, 0.078, 0.0, tx + 0.14, gloveCol, 'asphalt', 0, 0.40);
+        // Left support forearm angled inward from bottom-left cupping right hand
+        E.drawViewPart(bx - 0.082, by - 0.120, bz + 0.165, 0.084, 0.084, 0.22, -0.58, tx + 0.38, sleeveCol, 'camo_armor', 0, 0.18);
+        E.drawViewPart(bx - 0.028, by - 0.056, bz + 0.072, 0.052, 0.074, 0.072, -0.25, tx + 0.12, gloveCol, 'asphalt', 0, 0.40);
+        E.drawViewPart(bx - 0.022, by - 0.048, bz + 0.042, 0.062, 0.048, 0.032, 0.0, tx, knuckleCol, 'gunmetal', 0, 0.55);
+
+        // Detailed Makarov Pistol (slide, frame, bakelite brown grip, tritium sight)
         E.drawViewPart(bx, by + 0.045, bz, 0.052, 0.062, 0.26, 0, tx, steel, 'gunmetal', 0.03, 0.85);
         E.drawViewPart(bx, by + 0.01, bz + 0.01, 0.046, 0.025, 0.22, 0, tx, darkSteel, 'gunmetal', 0, 0.7);
         E.drawViewPart(bx, by - 0.045, bz + 0.08, 0.048, 0.12, 0.075, 0, tx + 0.22, [0.58, 0.28, 0.16, 1], 'wood', 0, 0.35);
-        // Tritium iron sight dots
         E.drawViewPart(bx, by + 0.082, bz - 0.11, 0.01, 0.012, 0.012, 0, tx, [0.4, 1.0, 0.45, 1], 'white', 1.4);
       } else {
-        // Left Gloved Support Hand gripping handguard!
-        E.drawViewPart(bx - 0.09, by - 0.11, bz - 0.08, 0.095, 0.095, 0.24, 0.42, tx + 0.18, sleeveCol, 'camo_armor', 0, 0.18);
-        E.drawViewPart(bx - 0.02, by - 0.02, bz - 0.18, 0.082, 0.078, 0.095, 0.1, tx, gloveCol, 'asphalt', 0, 0.38);
-        E.drawViewPart(bx - 0.055, by - 0.01, bz - 0.18, 0.025, 0.05, 0.08, 0, tx, knuckleCol, 'gunmetal', 0, 0.55);
+        // Right Trigger Hand + Forearm (connected seamlessly to pistol grip!)
+        E.drawViewPart(bx + 0.062, by - 0.118, bz + 0.212, 0.088, 0.088, 0.22, 0.50, tx + 0.40, sleeveCol, 'camo_armor', 0, 0.18);
+        E.drawViewPart(bx + 0.022, by - 0.080, bz + 0.145, 0.076, 0.076, 0.052, 0.28, tx + 0.28, cuffCol, 'asphalt', 0, 0.32);
+        E.drawViewPart(bx + 0.008, by - 0.064, bz + 0.118, 0.068, 0.082, 0.074, 0.05, tx + 0.18, gloveCol, 'asphalt', 0, 0.40);
+        // Right thumb & fingers wrapping pistol grip
+        E.drawViewPart(bx - 0.026, by - 0.045, bz + 0.105, 0.024, 0.032, 0.052, -0.2, tx, knuckleCol, 'gunmetal', 0, 0.52);
+
+        // Left Support Hand + Forearm (angled INWARD from bottom-left directly under handguard!)
+        E.drawViewPart(bx - 0.095, by - 0.095, bz - 0.105, 0.084, 0.084, 0.24, -0.66, tx + 0.44, sleeveCol, 'camo_armor', 0, 0.18);
+        E.drawViewPart(bx - 0.034, by - 0.046, bz - 0.180, 0.074, 0.070, 0.054, -0.42, tx + 0.24, cuffCol, 'asphalt', 0, 0.32);
+        // Gloved palm cradling bottom of handguard + thumb & fingers gripping sides
+        E.drawViewPart(bx - 0.006, by - 0.030, bz - 0.205, 0.076, 0.056, 0.088, -0.08, tx, gloveCol, 'asphalt', 0, 0.40);
+        E.drawViewPart(bx - 0.042, by + 0.002, bz - 0.202, 0.024, 0.052, 0.076, 0.0, tx, knuckleCol, 'gunmetal', 0, 0.54);
+        E.drawViewPart(bx + 0.034, by - 0.004, bz - 0.206, 0.020, 0.044, 0.068, 0.0, tx, gloveCol, 'asphalt', 0, 0.42);
 
         const barrelLen = wpn.id === 'svd' ? 0.56 : (wpn.id === 'saiga12' ? 0.42 : 0.36);
         // Stamped Metal Receiver + Ribbed Top Dust Cover + Picatinny Rail
@@ -829,12 +845,10 @@
         E.drawViewPart(bx, by + 0.042, bz - 0.56, 0.052, 0.052, 0.26, 0, tx, [0.24, 0.26, 0.28, 1], 'gunmetal', 0.02, 0.75);
       }
       if (wpn.hasOptic) {
-        // Real open-frame EOTech holographic sight housing (Screenshot 2 bottom-right!)
-        E.drawViewPart(bx, by + 0.095, bz + 0.04, 0.056, 0.018, 0.12, 0, tx, darkSteel, 'gunmetal', 0, 0.75); // Base
-        E.drawViewPart(bx - 0.026, by + 0.122, bz + 0.04, 0.008, 0.048, 0.075, 0, tx, darkSteel, 'gunmetal', 0, 0.8); // Left wall
-        E.drawViewPart(bx + 0.026, by + 0.122, bz + 0.04, 0.008, 0.048, 0.075, 0, tx, darkSteel, 'gunmetal', 0, 0.8); // Right wall
-        E.drawViewPart(bx, by + 0.146, bz + 0.04, 0.060, 0.008, 0.078, 0, tx, darkSteel, 'gunmetal', 0, 0.85);       // Hood top
-        // Translucent tinted glass lens + crisp glowing holographic red reticle!
+        E.drawViewPart(bx, by + 0.095, bz + 0.04, 0.056, 0.018, 0.12, 0, tx, darkSteel, 'gunmetal', 0, 0.75);
+        E.drawViewPart(bx - 0.026, by + 0.122, bz + 0.04, 0.008, 0.048, 0.075, 0, tx, darkSteel, 'gunmetal', 0, 0.8);
+        E.drawViewPart(bx + 0.026, by + 0.122, bz + 0.04, 0.008, 0.048, 0.075, 0, tx, darkSteel, 'gunmetal', 0, 0.8);
+        E.drawViewPart(bx, by + 0.146, bz + 0.04, 0.060, 0.008, 0.078, 0, tx, darkSteel, 'gunmetal', 0, 0.85);
         E.drawViewPart(bx, by + 0.122, bz + 0.04, 0.044, 0.040, 0.005, 0, tx, [0.4, 0.75, 0.78, 0.24], 'white', 0.2, 0.9, false);
         E.drawViewPart(bx, by + 0.122, bz + 0.036, 0.007, 0.007, 0.004, 0, tx, [1.0, 0.18, 0.14, 0.95], 'white', 2.8, 0, false);
       }
@@ -843,7 +857,7 @@
         E.drawViewPart(bx + 0.046, by + 0.02, bz - 1.9, 0.006, 0.006, 3.4, 0, tx, [0.22, 1.0, 0.36, 0.58], 'white', 2.0, 0, false);
       }
 
-      // Fiery multi-layer Muzzle Flame Cone (Screenshot 2 vibe!)
+      // Fiery multi-layer Muzzle Flame Cone
       if (p.muzzleFlash > 0.12) {
         const mz = bz - (wpn.suppressed ? 0.73 : 0.56);
         const s = (0.09 + p.muzzleFlash * 0.13) * (wpn.suppressed ? 0.55 : 1.0);
@@ -892,6 +906,9 @@
       if (this.started && !p.dead) {
         this._renderViewmodel(fov, nowSec);
         this.ui.updateHUD(dt);
+        this.ui.renderWorldMarkers(nowSec);
+      } else {
+        this.ui.clearWorldMarkers();
       }
 
       requestAnimationFrame(t => this.loop(t));

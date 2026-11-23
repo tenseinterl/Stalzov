@@ -28,9 +28,10 @@ window.ZoneWorld = (function () {
         { x: 118, z: 162, w: 48, d: 36 },
         { x: -172, z: -22, w: 44, d: 34 }
       ];
-      this.timeOfDay = 18.4;
-      this.weather = 'rain';
-      this.weatherTimer = 110;
+      this.timeOfDay = 9.5;
+      this.weather = 'clear';
+      this.weatherTimer = 95;
+      this.artifactsSpawnedByEmission = false;
       this.build();
     }
 
@@ -128,6 +129,12 @@ window.ZoneWorld = (function () {
       this._buildRailway(-235, 235, -34);
       this._buildRailway(-230, -10, 52);
 
+      // Freight railcars along railway tracks
+      this._buildRailcar(-76, -34);
+      this._buildRailcar(92, -34);
+      this._buildRailcar(-168, -34);
+      this._buildRailcar(-108, 52);
+
       const pylons = [
         [-48, -32], [58, -32], [-62, 42], [68, 78], [-110, -32], [145, -32],
         [-160, 140], [150, 120], [-80, -155], [80, -155], [165, -90]
@@ -138,6 +145,27 @@ window.ZoneWorld = (function () {
       this._buildBarBase();
       this._buildBanditDepotBase();
 
+      // === 2B. FORTIFIED CHECKPOINTS (БЛОКПОСТЫ) & HIGHWAY GAS STATION ===
+      this._buildCheckpoint(-64, 78, 0.35, 'bandit');
+      this._buildCheckpoint(24, 66, -0.25, 'stalker');
+      this._buildCheckpoint(-16, -56, 0.0, 'bandit');
+      this._buildCheckpoint(132, 22, 1.57, 'stalker');
+      this._buildCheckpoint(-128, -92, 1.57, 'bandit');
+      this._buildCheckpoint(8, -184, 0.0, 'merc');
+      this._buildGasStation(24, 118);
+
+      // Swamp wooden boardwalks across murky pools
+      this._buildBoardwalk(-45, 58, 34, 0.25);
+      this._buildBoardwalk(-78, 112, 38, -0.35);
+      this._buildBoardwalk(-24, 148, 30, 0.15);
+
+      // PO-2 Soviet concrete perimeter fences along highway & industrial zones
+      this._buildPO2FenceLine(-24, 32, -8, 32);
+      this._buildPO2FenceLine(8, 32, 28, 32);
+      this._buildPO2FenceLine(-58, -56, -24, -56);
+      this._buildPO2FenceLine(12, -56, 48, -56);
+      this._buildPO2FenceLine(116, -12, 116, 12);
+
       // === 3. SOUTH SWAMPS & FLOODED VILLAGE ===
       this._buildHouse(34, 54, 12, 5.0, 10, 'brick', 'south');
       this._buildHouse(58, 66, 11, 4.8, 9, 'wood', 'west');
@@ -145,8 +173,10 @@ window.ZoneWorld = (function () {
       this._buildHouse(-18, 168, 14, 5.5, 11, 'wood', 'north');
       this._buildHouse(24, 182, 12, 5.0, 10, 'brick', 'west');
       this._buildHouse(-66, 178, 15, 6.4, 12, 'brick', 'east');
+      this._buildHouse(-86, 158, 12, 5.0, 10, 'wood', 'south');
       this._buildGarage(-22, 46, 9, 4.0, 12);
       this._buildGarage(-34, 46, 9, 4.0, 12);
+      this._buildGarage(72, 92, 9, 4.0, 11);
       this._buildWatchtower(-14, 72);
       this._buildWatchtower(72, 46);
       this._buildWatchtower(-46, 148);
@@ -158,11 +188,13 @@ window.ZoneWorld = (function () {
       this._buildDetailedBTR(12, 158, -0.35);
       this._buildCampfire(-28, 60);
       this._buildCampfire(10, 172);
+      this._buildCampfire(52, 94);
 
       // === 4. EAST VEHICLE JUNKYARD ===
       this._buildIndustrialHall(154, 24, 26, 8.2, 20);
       this._buildHouse(148, -18, 14, 5.2, 12, 'concrete', 'west');
       this._buildHouse(182, 86, 13, 5.0, 11, 'brick', 'west');
+      this._buildGarage(174, 48, 11, 4.4, 14);
       this._buildWatchtower(112, 18);
       this._buildWatchtower(195, 42);
       this._buildDetailedBTR(124, 34, 0.7);
@@ -194,10 +226,6 @@ window.ZoneWorld = (function () {
       this._buildDetailedBTR(26, -182, -0.55);
       this._buildCampfire(-14, -176);
 
-      for (let i = 0; i < 6; i++) {
-        const bx = -14 + i * 6;
-        E.addStaticBox(bx, this.getHeight(bx, 32) + 0.9, 32, 3.8, 1.8, 0.65, 'concrete', { tile: 2 });
-      }
       this._buildBarbedWire(16, 66, 16);
       this._buildBarbedWire(-54, 44, 18);
       this._buildBarbedWire(112, 48, 22);
@@ -209,40 +237,117 @@ window.ZoneWorld = (function () {
       E.addStaticBox(-B, 4, 0, 2, 10, B * 2 + 4, 'concrete', { tile: 4 });
       E.addStaticBox(B, 4, 0, 2, 10, B * 2 + 4, 'concrete', { tile: 4 });
 
-      // === 6. 78 GNARLED TREES ===
+      // === 6. DENSE FOREST GROVES, SOLID CONIFERS, BROADLEAF TREES & BUSHES ===
       let seed = 1337;
       const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+
+      const blockedCenters = [
+        [0, 0, 32], [-145, 78, 32], [-64, 78, 16], [24, 66, 16], [-16, -56, 16],
+        [132, 22, 16], [-128, -92, 18], [8, -184, 16], [24, 118, 16],
+        [34, 54, 12], [58, 66, 11], [42, 86, 12], [-18, 168, 12], [24, 182, 12],
+        [-66, 178, 14], [154, 24, 22], [-38, -78, 24], [46, -78, 20], [46, -108, 16],
+        [0, -206, 36]
+      ];
+      const canPlaceFoliage = (x, z, pad = 0) => {
+        if (Math.abs(x) < 10.5 || Math.abs(z + 34) < 7.5) return false;
+        if (x < -8 && Math.abs(z - 52) < 6.5) return false;
+        if (Math.abs(x) > 236 || Math.abs(z) > 236) return false;
+        for (let i = 0; i < blockedCenters.length; i++) {
+          const bc = blockedCenters[i];
+          if (Math.hypot(x - bc[0], z - bc[1]) < bc[2] + pad) return false;
+        }
+        return true;
+      };
+
+      // Named woodland groves around the Zone so the map feels lush & alive
+      const groves = [
+        { x: -38, z: 22, r: 22, count: 10 },
+        { x: 46, z: 18, r: 26, count: 12 },
+        { x: 88, z: 58, r: 28, count: 12 },
+        { x: 84, z: -24, r: 28, count: 12 },
+        { x: -92, z: -12, r: 30, count: 12 },
+        { x: -96, z: 126, r: 28, count: 10 },
+        { x: 76, z: 158, r: 30, count: 11 },
+        { x: -82, z: -152, r: 32, count: 12 },
+        { x: 96, z: -144, r: 32, count: 12 },
+        { x: 186, z: -64, r: 30, count: 10 },
+        { x: -186, z: 16, r: 28, count: 10 }
+      ];
       let placedTrees = 0;
-      for (let tries = 0; tries < 240 && placedTrees < 78; tries++) {
-        const tx = (rand() - 0.5) * 460;
-        const tz = (rand() - 0.5) * 460;
-        if (Math.hypot(tx, tz) < 30 || Math.hypot(tx + 145, tz - 78) < 30) continue;
-        if (Math.abs(tx) < 11 || Math.abs(tz + 34) < 7) continue;
-        if (tz < -172 && Math.abs(tx) < 42) continue;
-        this._buildGnarledTree(tx, tz, 5.8 + (placedTrees % 4) * 1.6, placedTrees % 3 === 0);
+      for (const gr of groves) {
+        for (let k = 0; k < gr.count * 2 && placedTrees < 175; k++) {
+          const a = rand() * Math.PI * 2;
+          const d = Math.sqrt(rand()) * gr.r;
+          const tx = gr.x + Math.cos(a) * d;
+          const tz = gr.z + Math.sin(a) * d;
+          if (!canPlaceFoliage(tx, tz, 2)) continue;
+          const gy = this.getHeight(tx, tz);
+          if (gy < -0.18) continue;
+          const roll = rand();
+          const style = roll < 0.58 ? 'pine' : (roll < 0.92 ? 'broadleaf' : 'dead');
+          this._buildTree(tx, tz, 6.2 + rand() * 4.4, style);
+          placedTrees++;
+          if (k >= gr.count) break;
+        }
+      }
+      // Scatter additional trees across open hills & roadsides
+      for (let tries = 0; tries < 260 && placedTrees < 168; tries++) {
+        const tx = (rand() - 0.5) * 462;
+        const tz = (rand() - 0.5) * 462;
+        if (!canPlaceFoliage(tx, tz, 1)) continue;
+        const gy = this.getHeight(tx, tz);
+        if (gy < -0.15) continue;
+        const roll = rand();
+        const style = roll < 0.55 ? 'pine' : (roll < 0.88 ? 'broadleaf' : 'dead');
+        this._buildTree(tx, tz, 5.8 + rand() * 4.2, style);
         placedTrees++;
       }
 
-      const coverSpots = [
-        [8, 36], [-8, 56], [7, 78], [-7, 98], [8, -42], [-8, -62], [8, -88], [-16, -98],
-        [26, -58], [104, 24], [-102, 78], [14, 142], [-18, -148], [62, -142], [-96, -42]
-      ];
-      for (const c of coverSpots) {
-        const gy = this.getHeight(c[0], c[1]);
-        E.addStaticBox(c[0], gy + 0.85, c[1], 3.2, 1.7, 1.0, 'concrete', { tile: 2 });
-        E.addStaticBox(c[0] + 1.8, gy + 0.45, c[1] + 0.5, 0.9, 0.9, 0.9, 'crate', { tile: 1 });
+      // 130 dense solid voxel bushes along roadsides, hills & forest edges
+      let placedBushes = 0;
+      for (let tries = 0; tries < 280 && placedBushes < 130; tries++) {
+        const bx = (rand() - 0.5) * 462;
+        const bz = (rand() - 0.5) * 462;
+        if (!canPlaceFoliage(bx, bz, -3)) continue;
+        const gy = this.getHeight(bx, bz);
+        if (gy < -0.18) continue;
+        this._buildBush(bx, bz, 0.95 + rand() * 0.9, rand() < 0.45);
+        placedBushes++;
       }
 
-      // === 7. 1350 REALISTIC SWAYING GRASS TUFTS (Clustered naturally around swamps & meadows) ===
-      for (let i = 0; i < 1350; i++) {
-        const gx = (rand() - 0.5) * 470;
-        const gz = (rand() - 0.5) * 470;
+      // Tactical roadside cover, sandbag nests, crates & mossy boulders
+      const coverSpots = [
+        [8, 36], [-8, 56], [7, 78], [-7, 98], [8, 134], [-9, 132], [8, -42], [-8, -62],
+        [8, -88], [-16, -98], [26, -58], [104, 24], [-102, 78], [14, 142], [-18, -148],
+        [62, -142], [-96, -42], [-34, 14], [34, 28], [68, 14], [-58, 18], [102, -48],
+        [-72, -118], [44, -158], [-44, 118], [94, 114], [148, 66], [-134, 128]
+      ];
+      for (let i = 0; i < coverSpots.length; i++) {
+        const c = coverSpots[i];
+        const gy = this.getHeight(c[0], c[1]);
+        if (i % 3 === 0) {
+          E.addStaticBox(c[0], gy + 0.62, c[1], 3.2, 1.24, 0.95, 'sandbag', { tile: 2.2, ry: (i % 5) * 0.25 });
+          E.addStaticBox(c[0] + 1.6, gy + 0.45, c[1] + 0.6, 0.9, 0.9, 0.9, 'crate', { tile: 1 });
+        } else if (i % 3 === 1) {
+          E.addStaticBox(c[0], gy + 0.85, c[1], 3.2, 1.7, 1.0, 'concrete', { tile: 2 });
+          E.addStaticBox(c[0] + 1.8, gy + 0.45, c[1] + 0.5, 0.9, 0.9, 0.9, 'crate', { tile: 1 });
+        } else {
+          // Natural mossy boulders
+          E.addStaticBox(c[0], gy + 0.85, c[1], 2.8, 1.8, 2.3, 'concrete', { tile: 2, ry: 0.4, tint: [0.58, 0.60, 0.56, 1] });
+          E.addStaticBox(c[0] + 1.5, gy + 0.55, c[1] + 0.9, 1.6, 1.1, 1.5, 'concrete', { tile: 1.5, ry: -0.3, tint: [0.52, 0.56, 0.50, 1] });
+        }
+      }
+
+      // === 7. 1800 REALISTIC SWAYING GRASS TUFTS ===
+      for (let i = 0; i < 1800; i++) {
+        const gx = (rand() - 0.5) * 474;
+        const gz = (rand() - 0.5) * 474;
         if (Math.hypot(gx, gz) < 23.5 || Math.hypot(gx + 145, gz - 78) < 23.5) continue;
         if (Math.abs(gx) < 6.4) continue;
         const gy = this.getHeight(gx, gz);
         if (gy < -0.22) continue;
         const w = 1.2 + rand() * 1.1;
-        const h = (gy < 0.15 ? 1.15 : 0.70) + rand() * 0.55;
+        const h = (gy < 0.15 ? 1.15 : 0.72) + rand() * 0.55;
         E.addGrassTuft(gx, gy, gz, w, h);
       }
 
@@ -251,7 +356,8 @@ window.ZoneWorld = (function () {
       this._initContaminationZones();
       this._initSpotsAndProto();
       this._initWorldStashes();
-      this.respawnAnomaliesAndArtifacts();
+      // Artifacts spawn ONLY after an Emission passes!
+      this.respawnAnomaliesAndArtifacts(false);
     }
 
     _buildBarBase() {
@@ -401,21 +507,199 @@ window.ZoneWorld = (function () {
       }
     }
 
-    _buildGnarledTree(cx, cz, h, isDead) {
+    _buildTree(cx, cz, h, style = 'pine') {
       const E = this.engine;
       const gy = this.getHeight(cx, cz);
-      E.addStaticBox(cx, gy + h * 0.25, cz, 0.68, h * 0.55, 0.68, 'bark', { tile: 2 });
-      E.addStaticBox(cx + 0.18, gy + h * 0.65, cz - 0.12, 0.5, h * 0.48, 0.5, 'bark', { tile: 2, ry: 0.3 });
-      const limbs = [
-        [1.1, h * 0.72, 0.4, 2.2, 0.26, 0.28, 0.35],
-        [-1.0, h * 0.82, -0.5, 2.0, 0.24, 0.26, -0.5],
-        [0.4, h * 0.92, -1.0, 0.24, 0.24, 2.1, 0.2],
-        [-0.5, h * 0.98, 0.9, 0.22, 0.22, 1.8, -0.3]
-      ];
-      for (const l of limbs) E.addStaticBox(cx + l[0], gy + l[1], cz + l[2], l[3], l[4], l[5], 'bark', { tile: 1.5, ry: l[6], solid: false });
-      if (!isDead) {
-        E.addStaticBox(cx + 0.6, gy + h * 0.88, cz + 0.2, 3.8, 2.5, 3.8, 'leaves', { tile: 1.5, solid: false, doubleSided: true, wind: 0.05 });
-        E.addStaticBox(cx - 0.8, gy + h * 1.06, cz - 0.4, 3.0, 2.1, 3.0, 'leaves', { tile: 1.5, solid: false, doubleSided: true, wind: 0.06 });
+
+      if (style === 'pine') {
+        // Lush layered voxel conifer (solid opaque pine needle tiers — zero alpha glitches!)
+        E.addStaticBox(cx, gy + h * 0.42, cz, 0.56, h * 0.84, 0.56, 'bark', { tile: 2.2 });
+        const tiers = [
+          { y: 0.34, w: 3.6, th: 1.55, wind: 0.015 },
+          { y: 0.52, w: 3.0, th: 1.45, wind: 0.024 },
+          { y: 0.69, w: 2.35, th: 1.35, wind: 0.032 },
+          { y: 0.85, w: 1.60, th: 1.25, wind: 0.040 },
+          { y: 0.99, w: 0.88, th: 1.05, wind: 0.048 }
+        ];
+        const shade = 0.88 + ((Math.abs(Math.floor(cx * 3 + cz)) % 5) * 0.05);
+        const tint = [shade * 0.94, shade * 1.04, shade * 0.92, 1];
+        for (let i = 0; i < tiers.length; i++) {
+          const t = tiers[i];
+          E.addStaticBox(cx, gy + h * t.y, cz, t.w, t.th, t.w, 'pine', {
+            tile: 1.8, solid: false, tint, wind: t.wind, ry: (i % 2) * 0.25
+          });
+        }
+        return;
+      }
+
+      if (style === 'broadleaf') {
+        // Sturdy deciduous Zone tree with dense clustered solid foliage canopy
+        E.addStaticBox(cx, gy + h * 0.32, cz, 0.66, h * 0.64, 0.66, 'bark', { tile: 2.2 });
+        E.addStaticBox(cx + 0.1, gy + h * 0.62, cz - 0.08, 0.48, h * 0.28, 0.48, 'bark', { tile: 1.6, solid: false });
+        const shade = 0.86 + ((Math.abs(Math.floor(cx + cz * 2)) % 6) * 0.045);
+        const autumn = (Math.abs(Math.floor(cx * 7 - cz * 3)) % 4) === 0;
+        const tint = autumn
+          ? [shade * 1.15, shade * 0.96, shade * 0.64, 1]
+          : [shade * 0.92, shade * 1.06, shade * 0.82, 1];
+        const blobs = [
+          [0.0,  h * 0.78,  0.0,  3.5, 2.2, 3.5, 0.025],
+          [1.25, h * 0.72,  0.65, 2.3, 1.8, 2.3, 0.032],
+          [-1.2, h * 0.75, -0.60, 2.4, 1.8, 2.4, 0.032],
+          [0.35, h * 0.74, -1.15, 2.2, 1.7, 2.2, 0.030],
+          [-0.4, h * 0.71,  1.15, 2.2, 1.7, 2.2, 0.030],
+          [0.0,  h * 0.98,  0.0,  2.4, 1.6, 2.4, 0.042]
+        ];
+        for (const b of blobs) {
+          E.addStaticBox(cx + b[0], gy + b[1], cz + b[2], b[3], b[4], b[5], 'leaves', {
+            tile: 1.6, solid: false, tint, wind: b[6]
+          });
+        }
+        return;
+      }
+
+      // Rare dead marsh tree (clean silhouette without buggy foliage)
+      E.addStaticBox(cx, gy + h * 0.30, cz, 0.62, h * 0.60, 0.62, 'bark', { tile: 2 });
+      E.addStaticBox(cx + 0.14, gy + h * 0.68, cz - 0.10, 0.44, h * 0.42, 0.44, 'bark', { tile: 2, ry: 0.25 });
+      E.addStaticBox(cx + 0.85, gy + h * 0.74, cz + 0.25, 1.65, 0.24, 0.24, 'bark', { tile: 1.2, ry: 0.3, solid: false });
+      E.addStaticBox(cx - 0.75, gy + h * 0.84, cz - 0.35, 1.45, 0.22, 0.22, 'bark', { tile: 1.2, ry: -0.45, solid: false });
+    }
+
+    _buildBush(cx, cz, scale = 1.1, isPine = false) {
+      const E = this.engine;
+      const gy = this.getHeight(cx, cz);
+      const tex = isPine ? 'pine' : 'leaves';
+      const tint = isPine ? [0.85, 0.96, 0.82, 1] : [0.88, 0.98, 0.76, 1];
+      E.addStaticBox(cx, gy + 0.46 * scale, cz, 1.65 * scale, 0.95 * scale, 1.65 * scale, tex, {
+        tile: 1.2, solid: false, tint, wind: 0.03
+      });
+      E.addStaticBox(cx + 0.42 * scale, gy + 0.62 * scale, cz - 0.30 * scale, 1.1 * scale, 0.82 * scale, 1.1 * scale, tex, {
+        tile: 1.1, solid: false, tint, wind: 0.038, ry: 0.45
+      });
+    }
+
+    _buildCheckpoint(cx, cz, ry = 0, style = 'bandit') {
+      const E = this.engine;
+      const gy = this.getHeight(cx, cz);
+      const cy = Math.cos(ry), sy = Math.sin(ry);
+      const place = (lx, ly, lz, sx, syz, sz, tex, opts = {}) => {
+        const wx = cx + lx * cy + lz * sy;
+        const wz = cz - lx * sy + lz * cy;
+        E.addStaticBox(wx, gy + ly, wz, sx, syz, sz, tex, { ...opts, ry: ry + (opts.ry || 0) });
+      };
+
+      // Guardhouse booth (with solid roof for Emission shelter!)
+      const wallTex = style === 'stalker' ? 'brick' : (style === 'merc' ? 'concrete' : 'rust');
+      place(-5.5, 1.55, -2.5, 4.2, 3.1, 0.45, wallTex, { tile: 2.2 });
+      place(-7.5, 1.55,  0.0, 0.45, 3.1, 4.6, wallTex, { tile: 2.2 });
+      place(-3.5, 1.55,  0.0, 0.45, 3.1, 4.6, wallTex, { tile: 2.2 });
+      place(-5.5, 3.25,  0.0, 5.2, 0.42, 5.6, 'roof', { tile: 2.2, isRoof: true, solid: true });
+      place(-5.5, 0.08,  0.0, 4.6, 0.16, 5.0, 'concrete', { tile: 2, solid: false, polyOffset: true });
+
+      // Sandbag defensive firing bunkers flanking the road/approach
+      place( 4.6, 0.65,  4.2, 4.8, 1.3, 1.1, 'sandbag', { tile: 2.4 });
+      place( 6.6, 0.65,  1.8, 1.1, 1.3, 4.2, 'sandbag', { tile: 2.4 });
+      place(-4.6, 0.65,  4.8, 4.2, 1.3, 1.1, 'sandbag', { tile: 2.4 });
+      place( 5.0, 0.65, -4.6, 4.4, 1.3, 1.1, 'sandbag', { tile: 2.4 });
+
+      // PO-2 concrete perimeter slabs at rear
+      place(-1.2, 1.3, -6.2, 4.2, 2.6, 0.45, 'fence_po2', { tile: 1.5 });
+      place( 3.2, 1.3, -6.2, 4.2, 2.6, 0.45, 'fence_po2', { tile: 1.5 });
+
+      // Road barrier gate posts + yellow-black hazard boom
+      place(-2.4, 1.1,  3.8, 0.42, 2.2, 0.42, 'concrete', { tile: 1 });
+      place( 2.4, 1.1,  3.8, 0.42, 2.2, 0.42, 'concrete', { tile: 1 });
+      place( 0.0, 1.25, 3.8, 5.0, 0.22, 0.22, 'hazard', { tile: 2.5, solid: false });
+
+      // Supply crates & fuel barrels
+      place( 3.8, 0.48, -2.2, 1.0, 0.96, 1.0, 'crate', { tile: 1, ry: 0.2 });
+      place( 4.9, 0.48, -1.9, 0.9, 0.96, 0.9, 'crate', { tile: 1, ry: -0.15 });
+      place( 4.3, 1.35, -2.0, 0.82, 0.78, 0.82, 'crate', { tile: 1, ry: 0.35 });
+      place(-2.2, 0.62, -2.8, 0.75, 1.24, 0.75, 'rust', { tile: 1.2, tint: [0.78, 0.32, 0.22, 1] });
+
+      // Floodlight pole + warm or red outpost light
+      place(6.2, 2.8, -3.5, 0.26, 5.6, 0.26, 'rust', { tile: 2 });
+      const lx = cx + 6.2 * cy - 3.5 * sy;
+      const lz = cz - 6.2 * sy - 3.5 * cy;
+      E.addStaticBox(lx, gy + 5.7, lz, 0.65, 0.32, 0.65, 'white', {
+        tile: 1, tint: style === 'stalker' ? [0.92, 0.98, 0.72, 1] : [1.0, 0.56, 0.34, 1], emissive: 1.8, solid: false
+      });
+      this.staticLights.push({
+        x: lx, y: gy + 5.4, z: lz, r: 22,
+        cr: style === 'stalker' ? 1.1 : 1.4,
+        cg: style === 'stalker' ? 1.15 : 0.62,
+        cb: style === 'stalker' ? 0.75 : 0.36
+      });
+
+      // Checkpoint campfire
+      const fx = cx + 1.2 * cy - 1.2 * sy;
+      const fz = cz - 1.2 * sy - 1.2 * cy;
+      this._buildCampfire(fx, fz);
+    }
+
+    _buildGasStation(cx, cz) {
+      const E = this.engine;
+      const gy = this.getHeight(cx, cz);
+      // Concrete forecourt pad
+      E.addStaticBox(cx, gy + 0.08, cz, 20, 0.16, 16, 'concrete', { tile: 3.5, solid: false, polyOffset: true });
+      // Canopy roof + 4 rusty steel pillars
+      for (const p of [[-7, -4.5], [7, -4.5], [-7, 4.5], [7, 4.5]]) {
+        E.addStaticBox(cx + p[0], gy + 2.5, cz + p[1], 0.42, 5.0, 0.42, 'rust', { tile: 2 });
+      }
+      E.addStaticBox(cx, gy + 5.15, cz, 16.5, 0.65, 11.5, 'roof', { tile: 3, isRoof: true, solid: true });
+      E.addStaticBox(cx, gy + 5.15, cz + 5.8, 16.6, 0.75, 0.18, 'hazard', { tile: 4, solid: false });
+      // Two fuel islands & rusted Soviet fuel pumps
+      for (const px of [-3.2, 3.2]) {
+        E.addStaticBox(cx + px, gy + 0.25, cz, 1.5, 0.35, 5.4, 'concrete', { tile: 1.5 });
+        E.addStaticBox(cx + px, gy + 1.15, cz - 1.2, 0.78, 1.6, 0.65, 'rust', { tile: 1.2, tint: [0.85, 0.42, 0.24, 1] });
+        E.addStaticBox(cx + px, gy + 1.15, cz + 1.2, 0.78, 1.6, 0.65, 'rust', { tile: 1.2, tint: [0.85, 0.42, 0.24, 1] });
+      }
+      // Small brick cashier building next to canopy
+      this._buildHouse(cx + 12.5, cz - 2, 7.5, 4.2, 9.0, 'brick', 'west');
+      this.staticLights.push({ x: cx, y: gy + 4.5, z: cz, r: 22, cr: 1.2, cg: 1.05, cb: 0.72 });
+    }
+
+    _buildRailcar(cx, cz) {
+      const E = this.engine;
+      const gy = this.getHeight(cx, cz);
+      // Iron underframe & bogies
+      E.addStaticBox(cx, gy + 0.75, cz, 13.5, 0.45, 2.7, 'gunmetal', { tile: 3, spec: 0.45 });
+      for (const wx of [-4.6, -3.2, 3.2, 4.6]) {
+        E.addStaticBox(cx + wx, gy + 0.45, cz - 0.9, 0.85, 0.85, 0.32, 'asphalt', { tile: 1 });
+        E.addStaticBox(cx + wx, gy + 0.45, cz + 0.9, 0.85, 0.85, 0.32, 'asphalt', { tile: 1 });
+      }
+      // Rusted boxcar body (walk-through side doorway or solid bunker cover)
+      E.addStaticBox(cx, gy + 2.45, cz - 1.32, 13.4, 2.95, 0.25, 'rust', { tile: 3.5, tint: [0.72, 0.44, 0.34, 1] });
+      E.addStaticBox(cx - 4.1, gy + 2.45, cz + 1.32, 5.2, 2.95, 0.25, 'rust', { tile: 2.2, tint: [0.72, 0.44, 0.34, 1] });
+      E.addStaticBox(cx + 4.1, gy + 2.45, cz + 1.32, 5.2, 2.95, 0.25, 'rust', { tile: 2.2, tint: [0.72, 0.44, 0.34, 1] });
+      E.addStaticBox(cx - 6.6, gy + 2.45, cz, 0.25, 2.95, 2.55, 'rust', { tile: 2, tint: [0.72, 0.44, 0.34, 1] });
+      E.addStaticBox(cx + 6.6, gy + 2.45, cz, 0.25, 2.95, 2.55, 'rust', { tile: 2, tint: [0.72, 0.44, 0.34, 1] });
+      E.addStaticBox(cx, gy + 4.02, cz, 13.7, 0.28, 2.95, 'roof', { tile: 3, isRoof: true, solid: true });
+    }
+
+    _buildPO2FenceLine(x1, z1, x2, z2) {
+      const E = this.engine;
+      const dist = Math.hypot(x2 - x1, z2 - z1);
+      const count = Math.max(1, Math.round(dist / 3.8));
+      const ry = Math.atan2(x2 - x1, z2 - z1) - Math.PI * 0.5;
+      for (let i = 0; i < count; i++) {
+        const t = (i + 0.5) / count;
+        const x = x1 + (x2 - x1) * t;
+        const z = z1 + (z2 - z1) * t;
+        const gy = this.getHeight(x, z);
+        E.addStaticBox(x, gy + 1.35, z, 3.7, 2.7, 0.42, 'fence_po2', { tile: 1.4, ry });
+      }
+    }
+
+    _buildBoardwalk(cx, cz, length = 30, ry = 0) {
+      const E = this.engine;
+      const cy = Math.cos(ry), sy = Math.sin(ry);
+      const segs = Math.floor(length / 3.0);
+      for (let i = 0; i < segs; i++) {
+        const off = (i - (segs - 1) * 0.5) * 3.0;
+        const wx = cx + off * cy;
+        const wz = cz - off * sy;
+        const y = Math.max(-0.08, this.getHeight(wx, wz) + 0.14);
+        E.addStaticBox(wx, y, wz, 2.95, 0.14, 1.9, 'wood', { tile: 1.5, ry, solid: false });
       }
     }
 
@@ -598,9 +882,10 @@ window.ZoneWorld = (function () {
       ];
     }
 
-    respawnAnomaliesAndArtifacts() {
+    respawnAnomaliesAndArtifacts(spawnArtifacts = false) {
       this.anomalies = [];
       this.artifacts = [];
+      if (spawnArtifacts) this.artifactsSpawnedByEmission = true;
       const types = ['electro', 'vortex', 'springboard', 'burner', 'acid'];
       const clusters = [
         { x: -18, z: 40, type: 'electro', tier: 1 },
@@ -643,7 +928,7 @@ window.ZoneWorld = (function () {
           radius: c.type === 'vortex' ? 4.4 : 3.2,
           cooldown: 0, dischargedUntil: 0, pulse: Math.random() * 6.28
         });
-        if (idx % 2 === 0 || c.tier >= 3) {
+        if (spawnArtifacts && (idx % 2 === 0 || c.tier >= 3)) {
           const pool = c.tier >= 3 ? northArts : southArts;
           const artId = pool[Math.floor(Math.random() * pool.length)];
           const aAng = Math.random() * Math.PI * 2;
@@ -660,43 +945,89 @@ window.ZoneWorld = (function () {
     }
 
     updateAtmosphere(dt, emissionState) {
-      this.timeOfDay = (this.timeOfDay + dt / 36) % 24;
+      // Smooth 24-hour Day/Night cycle (~7.2 real minutes per full Zone day)
+      this.timeOfDay = (this.timeOfDay + dt / 18) % 24;
       this.weatherTimer -= dt;
       if (this.weatherTimer <= 0) {
-        const w = ['rain', 'fog', 'rain', 'overcast'];
+        const w = ['clear', 'overcast', 'clear', 'rain', 'fog'];
         this.weather = w[Math.floor(Math.random() * w.length)];
-        this.weatherTimer = 65 + Math.random() * 65;
+        this.weatherTimer = 75 + Math.random() * 65;
       }
 
       window.SoundEngine.setRainLevel(
-        emissionState.phase === 'active' ? 0.085 : (this.weather === 'rain' ? 0.042 : 0.012)
+        emissionState.phase === 'active' ? 0.085 : (this.weather === 'rain' ? 0.040 : 0.006)
       );
 
-      const dayWave = Math.max(0, Math.sin((this.timeOfDay - 6) / 24 * Math.PI * 2));
-      let zenR = 0.06 + dayWave * 0.12, zenG = 0.08 + dayWave * 0.14, zenB = 0.10 + dayWave * 0.14;
-      let horR = 0.15 + dayWave * 0.18, horG = 0.19 + dayWave * 0.19, horB = 0.17 + dayWave * 0.16;
-      let cldR = 0.11 + dayWave * 0.16, cldG = 0.14 + dayWave * 0.17, cldB = 0.14 + dayWave * 0.15;
+      const sunAngle = ((this.timeOfDay - 6) / 24) * Math.PI * 2;
+      const sunElev = Math.sin(sunAngle);
+      const sunHoriz = Math.cos(sunAngle);
+      this.engine.sunDir = [sunHoriz * 0.86, Math.max(-0.35, sunElev), -0.46];
 
-      let fogD = this.weather === 'fog' ? 0.022 : (this.weather === 'rain' ? 0.018 : 0.014);
-      let ambR = 0.24 + dayWave * 0.20, ambG = 0.27 + dayWave * 0.21, ambB = 0.26 + dayWave * 0.18;
-      let sunR = 0.36 + dayWave * 0.44, sunG = 0.38 + dayWave * 0.42, sunB = 0.34 + dayWave * 0.36;
+      const dayT = Math.max(0, Math.min(1, (sunElev + 0.10) / 0.55));
+      const nightFactor = Math.max(0, Math.min(1, (-sunElev + 0.06) / 0.34));
+      const twilight = Math.max(0, 1 - Math.abs(sunElev - 0.03) * 4.2);
+
+      // Base Day <-> Night sky & lighting palette
+      let zenR = 0.025 + dayT * 0.23 + twilight * 0.10;
+      let zenG = 0.040 + dayT * 0.42 + twilight * 0.04;
+      let zenB = 0.085 + dayT * 0.62 + twilight * 0.02;
+
+      let horR = 0.055 + dayT * 0.54 + twilight * 0.36;
+      let horG = 0.075 + dayT * 0.62 + twilight * 0.14;
+      let horB = 0.125 + dayT * 0.66 - twilight * 0.06;
+
+      let cldR = 0.070 + dayT * 0.72 + twilight * 0.24;
+      let cldG = 0.090 + dayT * 0.75 + twilight * 0.08;
+      let cldB = 0.130 + dayT * 0.76 - twilight * 0.04;
+
+      let ambR = 0.15 + dayT * 0.31 + twilight * 0.06;
+      let ambG = 0.18 + dayT * 0.32 + twilight * 0.02;
+      let ambB = 0.24 + dayT * 0.28 - twilight * 0.02;
+
+      let sunR = 0.22 + dayT * 0.88 + twilight * 0.28;
+      let sunG = 0.28 + dayT * 0.76 + twilight * 0.06;
+      let sunB = 0.42 + dayT * 0.52 - twilight * 0.14;
+
+      let fogD = 0.0085 + nightFactor * 0.0045;
+
+      // Weather adjustments
+      if (this.weather === 'overcast') {
+        const g = 0.55;
+        zenR = zenR * (1 - g) + (zenR + zenG + zenB) * 0.33 * g;
+        zenG = zenG * (1 - g) + (zenR + zenG + zenB) * 0.33 * g;
+        zenB = zenB * (1 - g) + (zenR + zenG + zenB) * 0.33 * g;
+        sunR *= 0.75; sunG *= 0.78; sunB *= 0.82;
+        fogD += 0.0035;
+      } else if (this.weather === 'rain') {
+        zenR *= 0.62; zenG *= 0.68; zenB *= 0.74;
+        horR *= 0.68; horG *= 0.74; horB *= 0.78;
+        sunR *= 0.55; sunG *= 0.60; sunB *= 0.66;
+        fogD += 0.0075;
+      } else if (this.weather === 'fog') {
+        horR = horR * 0.7 + 0.22 * (0.3 + dayT * 0.7);
+        horG = horG * 0.7 + 0.24 * (0.3 + dayT * 0.7);
+        horB = horB * 0.7 + 0.23 * (0.3 + dayT * 0.7);
+        sunR *= 0.62; sunG *= 0.64; sunB *= 0.65;
+        fogD += 0.0115;
+      }
 
       let lightning = 0;
       if (emissionState.phase === 'warning' || emissionState.phase === 'active') {
         const k = emissionState.intensity;
         lightning = emissionState.lightningFlash || 0;
-        zenR = zenR * (1 - k) + 0.38 * k; zenG = zenG * (1 - k) + 0.04 * k; zenB = zenB * (1 - k) + 0.05 * k;
-        horR = horR * (1 - k) + 0.68 * k; horG = horG * (1 - k) + 0.11 * k; horB = horB * (1 - k) + 0.08 * k;
-        cldR = cldR * (1 - k) + 0.52 * k; cldG = cldG * (1 - k) + 0.07 * k; cldB = cldB * (1 - k) + 0.06 * k;
-        ambR = ambR * (1 - k) + 0.52 * k; ambG = ambG * (1 - k) + 0.14 * k; ambB = ambB * (1 - k) + 0.11 * k;
-        fogD = Math.max(fogD, 0.021 + k * 0.013);
+        zenR = zenR * (1 - k) + 0.42 * k; zenG = zenG * (1 - k) + 0.04 * k; zenB = zenB * (1 - k) + 0.05 * k;
+        horR = horR * (1 - k) + 0.74 * k; horG = horG * (1 - k) + 0.11 * k; horB = horB * (1 - k) + 0.08 * k;
+        cldR = cldR * (1 - k) + 0.56 * k; cldG = cldG * (1 - k) + 0.07 * k; cldB = cldB * (1 - k) + 0.06 * k;
+        ambR = ambR * (1 - k) + 0.54 * k; ambG = ambG * (1 - k) + 0.14 * k; ambB = ambB * (1 - k) + 0.11 * k;
+        fogD = Math.max(fogD, 0.020 + k * 0.014);
       }
 
-      this.engine.skyZenith = [zenR, zenG, zenB];
-      this.engine.skyHorizon = [horR, horG, horB];
-      this.engine.skyClouds = [cldR, cldG, cldB];
-      this.engine.fogColor = [horR * 0.92, horG * 0.94, horB * 0.92];
+      this.engine.skyZenith = [Math.max(0.01, zenR), Math.max(0.01, zenG), Math.max(0.02, zenB)];
+      this.engine.skyHorizon = [Math.max(0.02, horR), Math.max(0.02, horG), Math.max(0.03, horB)];
+      this.engine.skyClouds = [Math.max(0.03, cldR), Math.max(0.03, cldG), Math.max(0.04, cldB)];
+      this.engine.fogColor = [horR * 0.90, horG * 0.92, horB * 0.94];
       this.engine.fogDensity = fogD;
+      this.engine.nightFactor = emissionState.phase === 'active' ? 0.0 : nightFactor;
       this.engine.lightning = lightning;
       this.engine.ambient = [ambR, ambG, ambB];
       this.engine.sunColor = [sunR, sunG, sunB];
@@ -713,7 +1044,11 @@ window.ZoneWorld = (function () {
       if (emissionPhase === 'warning') return 'ШТОРМ';
       if (this.weather === 'rain') return 'ДОЖДЬ';
       if (this.weather === 'fog') return 'ТУМАН';
-      return 'СУМЕРКИ';
+      if (this.timeOfDay < 5.0 || this.timeOfDay >= 21.0) return 'НОЧЬ';
+      if (this.timeOfDay < 7.5) return 'РАССВЕТ';
+      if (this.timeOfDay >= 17.5) return 'ЗАКАТ';
+      if (this.weather === 'overcast') return 'ОБЛАЧНО';
+      return 'ЯСНО';
     }
   }
 
