@@ -1,9 +1,14 @@
 <resources>
     <string name="app_name">STALZONE</string>
     <string name="loading_zone">ИНИЦИАЛИЗАЦИЯ ЗОНЫ ОТЧУЖДЕНИЯ...</string>
-    <string name="loading_sub">ЗАГРУЗКА ВОКСЕЛЬНОГО СЕКТОРА И ДЕТЕКТОРОВ</string>
+    <string name="loading_sub">ПОДКЛЮЧЕНИЕ К ОНЛАЙН-СЕКТОРУ И ЗАГРУЗКА МИРА</string>
     <string name="exit_dialog_title">ПОКИНУТЬ ЗОНУ?</string>
-    <string name="exit_dialog_message">Весь прогресс, схрон и снаряжение сохранены автоматически.</string>
+    <string name="exit_dialog_message">Весь прогресс, схрон и снаряжение сохранены в облаке и на устройстве.</string>
     <string name="exit_confirm">ВЫЙТИ</string>
     <string name="exit_cancel">ОСТАТЬСЯ</string>
+    <string name="auth_subtitle">ОНЛАЙН-СЕРВЕР ЗОНЫ • ОБЛАЧНЫЙ СХРОН</string>
+    <string name="auth_description">Войдите через Google, чтобы играть онлайн с другими сталкерами и бандитами, общаться по рации ПДА и сохранять прогресс в облаке.</string>
+    <string name="auth_google_button">ВОЙТИ ЧЕРЕЗ GOOGLE</string>
+    <string name="auth_connecting">ПОДКЛЮЧЕНИЕ К ЗОНЕ...</string>
+    <string name="auth_cloud_note">Сервер работает автоматически — настройка не требуется</string>
 </resources>

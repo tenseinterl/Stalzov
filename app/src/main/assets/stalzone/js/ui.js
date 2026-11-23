@@ -5,8 +5,12 @@ window.GameUI = (function () {
   class UI {
     constructor(game) {
       this.game = game;
-      this.openModal = null; // 'modal-inventory' | 'modal-pda' | 'modal-npc' | 'modal-settings' | 'modal-death'
+      this.openModal = null;
       this.activeNpcId = null;
+      this.activeLoot = null;     // { obj, kind }
+      this.mcHand = null;         // { zone: 'loot'|'bag'|'stash', list, slot }
+      this.lastTapInfo = { key: '', time: 0 };
+      this.selectedBagSlot = null;
       this.selectedBagId = null;
       this.prevHumanCount = 0;
       this.hitmarkerTimer = 0;
@@ -29,6 +33,22 @@ window.GameUI = (function () {
     }
 
     _bindDOM() {
+      const syncFactionCards = () => {
+        const f = this.game.profile.faction || 'stalker';
+        document.querySelectorAll('.faction-card').forEach(c => {
+          c.classList.toggle('active', c.dataset.faction === f);
+        });
+      };
+      syncFactionCards();
+      document.querySelectorAll('.faction-card').forEach(card => {
+        card.onclick = () => {
+          window.SoundEngine.ensure();
+          window.SoundEngine.playUI();
+          this.game.setFaction(card.dataset.faction);
+          syncFactionCards();
+        };
+      });
+
       $('btn-deploy').onclick = () => {
         window.SoundEngine.ensure();
         window.SoundEngine.playUI();
@@ -36,16 +56,22 @@ window.GameUI = (function () {
         $('hud').classList.remove('hidden');
         this.game.started = true;
         this.applySettingsUI();
-        this.game.toast('Добро пожаловать в Бар! Осмотритесь у костра или выходите в Болота.', 'good');
+        const fac = window.GameData.FACTIONS[this.game.profile.faction] || window.GameData.FACTIONS.stalker;
+        this.game.toast(`Вы в Зоне за «${fac.name}»! База: ${fac.baseName}.`, 'good');
       };
 
       $('btn-reset-save').onclick = () => {
         if (confirm('Сбросить весь прогресс, схрон и снаряжение?')) {
           this.game.profile = window.GameData.resetProfile();
           this.game.respawnAtBar(false);
+          syncFactionCards();
           this.game.toast('Прогресс сброшен.', 'good');
         }
       };
+
+      $('btn-loot-take-all').onclick = () => this._lootTakeAll();
+      $('btn-loot-drop-hand').onclick = () => { this.mcHand = null; this.renderLootModal(); };
+      $('btn-inv-cancel-hand').onclick = () => { this.mcHand = null; this.renderInventory(); };
 
       $('btn-hud-pda').onclick = () => this.toggleModal('modal-pda');
       $('btn-hud-inv').onclick = () => this.toggleModal('modal-inventory');
@@ -62,11 +88,44 @@ window.GameUI = (function () {
           btn.classList.add('active');
           const tab = btn.dataset.pda;
           $('pda-tab-map').classList.toggle('hidden', tab !== 'map');
+          $('pda-tab-radio').classList.toggle('hidden', tab !== 'radio');
           $('pda-tab-quests').classList.toggle('hidden', tab !== 'quests');
           $('pda-tab-stats').classList.toggle('hidden', tab !== 'stats');
           this.renderPDA();
         };
       });
+
+      const switchSector = (sec) => {
+        window.SoundEngine.playUI();
+        this.game.onlineMeta.sectorId = sec;
+        if (window.AndroidBridge && window.AndroidBridge.setOnlineSector) {
+          try { window.AndroidBridge.setOnlineSector(sec); } catch (_) {}
+        }
+        this.updateOnlineBadges();
+        this.renderRadioChat();
+        this.game.toast(`Переключено на ${sec === 'zone_2' ? 'СЕКТОР 2' : 'СЕКТОР 1'}`, 'good');
+      };
+      if ($('btn-sector-1')) $('btn-sector-1').onclick = () => switchSector('zone_1');
+      if ($('btn-sector-2')) $('btn-sector-2').onclick = () => switchSector('zone_2');
+
+      const sendRadio = () => {
+        const inp = $('radio-chat-input');
+        if (!inp) return;
+        const txt = inp.value.trim();
+        if (!txt) return;
+        if (window.AndroidBridge && window.AndroidBridge.sendChatMessage) {
+          try { window.AndroidBridge.sendChatMessage(this.game.profile.faction || 'stalker', txt); } catch (_) {}
+        }
+        inp.value = '';
+        window.SoundEngine.playUI();
+      };
+      if ($('btn-radio-send')) $('btn-radio-send').onclick = sendRadio;
+      if ($('radio-chat-input')) {
+        $('radio-chat-input').addEventListener('keydown', e => {
+          e.stopPropagation();
+          if (e.key === 'Enter') sendRadio();
+        });
+      }
 
       $('btn-trigger-emission').onclick = () => {
         this.closeAllModals();
@@ -102,12 +161,28 @@ window.GameUI = (function () {
       };
       $('btn-save-now').onclick = () => {
         this.game.save();
-        this.game.toast('✔ Прогресс сохранён в localStorage!', 'good');
+        this.game.toast('✔ Прогресс сохранён локально и в облако!', 'good');
+      };
+      if ($('btn-sign-out')) {
+        $('btn-sign-out').onclick = () => {
+          this.game.save();
+          if (window.AndroidBridge && window.AndroidBridge.requestSignOut) {
+            window.AndroidBridge.requestSignOut();
+          }
+        };
+      }
+      $('btn-switch-faction').onclick = () => {
+        const next = (this.game.profile.faction === 'bandit') ? 'stalker' : 'bandit';
+        this.game.setFaction(next);
+        this.closeAllModals();
+        const fac = window.GameData.FACTIONS[next];
+        this.game.toast(`Фракция изменена: «${fac.name}» (${fac.baseName})!`, 'good');
       };
       $('btn-respawn-bar').onclick = () => {
         this.closeAllModals();
         this.game.respawnAtBar(false);
-        this.game.toast('Вы вернулись на базу «Бар».', 'good');
+        const fac = window.GameData.FACTIONS[this.game.profile.faction] || window.GameData.FACTIONS.stalker;
+        this.game.toast(`Вы вернулись на базу «${fac.baseName}».`, 'good');
       };
       $('btn-exit-game').onclick = () => {
         this.game.save();
@@ -152,6 +227,7 @@ window.GameUI = (function () {
         if (code === 'KeyF') this.game.interact();
         if (code === 'KeyB' || code === 'Digit4') this.game.throwBoltAction();
         if (code === 'KeyG') this.game.toggleDetector();
+        if (code === 'KeyL') this.game.toggleFlashlight();
         if (code === 'KeyX' && this.game.player.holdingDetector) {
           this.game.entities.startSignalScan(this.game.player.x, this.game.player.z, this.game);
         }
@@ -353,6 +429,7 @@ window.GameUI = (function () {
       $('tbtn-knife').onclick = () => this.game.selectWeaponSlot('melee');
       $('tbtn-bolt').onclick = () => this.game.throwBoltAction();
       $('tbtn-det').onclick = () => this.game.toggleDetector();
+      $('tbtn-light').onclick = () => this.game.toggleFlashlight();
     }
 
     pollKeyboardInput() {
@@ -398,19 +475,203 @@ window.GameUI = (function () {
       this.renderNpcModal();
     }
 
+    openLootModal(obj, kind) {
+      this.closeAllModals();
+      this.activeLoot = { obj, kind };
+      this.mcHand = null;
+      this.openModal = 'modal-loot';
+      $('modal-loot').classList.remove('hidden');
+      this.input.fire = false;
+      this.input.ads = false;
+      document.exitPointerLock?.();
+      this.renderLootModal();
+    }
+
     showDeathModal(reason) {
       this.closeAllModals();
       this.openModal = 'modal-death';
       $('death-reason').textContent = 'Причина: ' + reason;
+      const fac = window.GameData.FACTIONS[this.game.profile.faction] || window.GameData.FACTIONS.stalker;
+      $('btn-respawn').textContent = `ВОЗРОДИТЬСЯ НА БАЗЕ «${fac.baseName.toUpperCase()}»`;
       $('modal-death').classList.remove('hidden');
       document.exitPointerLock?.();
     }
 
     closeAllModals() {
-      ['modal-inventory', 'modal-pda', 'modal-npc', 'modal-settings', 'modal-death'].forEach(id => {
-        $(id).classList.add('hidden');
+      ['modal-inventory', 'modal-loot', 'modal-pda', 'modal-npc', 'modal-settings', 'modal-death'].forEach(id => {
+        const el = $(id);
+        if (el) el.classList.add('hidden');
       });
+      if (this.activeLoot && this.activeLoot.kind === 'signal' && this.activeLoot.obj.items.length === 0) {
+        this.game.entities.signalStash = null;
+      }
+      this.activeLoot = null;
+      this.mcHand = null;
       this.openModal = null;
+    }
+
+    // === MINECRAFT-STYLE SLOT GRID RENDERER (Tap-Pick, Tap-Place/Swap/Stack, Double-Tap Quick-Transfer, Drag & Drop) ===
+    _renderMcGrid(container, zoneKey, list, slotCount, opts = {}) {
+      const GD = window.GameData;
+      GD.ensureSlots(list, slotCount);
+      const bySlot = new Array(slotCount).fill(null);
+      for (const it of list) {
+        if (it.slot >= 0 && it.slot < slotCount) bySlot[it.slot] = it;
+      }
+
+      container.innerHTML = '';
+      for (let s = 0; s < slotCount; s++) {
+        const entry = bySlot[s];
+        const def = entry ? GD.ITEMS[entry.id] : null;
+        const cell = document.createElement('div');
+        const isPicked = this.mcHand && this.mcHand.zone === zoneKey && this.mcHand.slot === s;
+        const isSel = opts.selectedSlot === s && !!entry;
+        cell.className = 'mc-slot'
+          + (def ? ` filled tier-${def.tier || 1}` : '')
+          + (isPicked ? ' picked' : '')
+          + (isSel ? ' selected' : '');
+        cell.draggable = !!entry;
+
+        if (def) {
+          cell.innerHTML = `
+            <span class="mc-ico">${def.icon || '📦'}</span>
+            <span class="mc-short">${def.short || def.name.slice(0, 7)}</span>
+            <span class="mc-cnt">${entry.count > 1 ? entry.count : ''}</span>
+          `;
+          cell.title = `${def.name} (x${entry.count})`;
+        }
+
+        // Desktop Drag & Drop
+        cell.ondragstart = e => {
+          if (!entry) { e.preventDefault(); return; }
+          this.mcHand = { zone: zoneKey, list, slot: s, slotCount };
+          e.dataTransfer.setData('text/plain', `${zoneKey}:${s}`);
+        };
+        cell.ondragover = e => e.preventDefault();
+        cell.ondrop = e => {
+          e.preventDefault();
+          if (this.mcHand) {
+            this._completeMcMove(list, s, slotCount, opts.onChange);
+          }
+        };
+
+        // Tap / Click (Minecraft pick-up -> tap destination to place/stack/swap; Double-tap = Quick Transfer!)
+        cell.onclick = () => {
+          const now = performance.now();
+          const tapKey = `${zoneKey}:${s}`;
+          const isDoubleTap = (this.lastTapInfo.key === tapKey && (now - this.lastTapInfo.time) < 340);
+          this.lastTapInfo = { key: tapKey, time: now };
+
+          if (opts.onInspect && entry) opts.onInspect(entry, s);
+
+          // Double-tap quick shift between containers (like Shift+Click in Minecraft!)
+          if (isDoubleTap && entry && opts.quickTargetList) {
+            this.mcHand = null;
+            const taken = GD.addItemToList(opts.quickTargetList, entry.id, entry.count, opts.quickTargetSlots || 24);
+            if (taken) {
+              const idx = list.indexOf(entry);
+              if (idx >= 0) list.splice(idx, 1);
+              window.SoundEngine.playUI();
+              this.game.save();
+              if (opts.onChange) opts.onChange();
+            } else {
+              this.game.toast('Нет свободных слотов!', 'bad');
+            }
+            return;
+          }
+
+          if (!this.mcHand) {
+            if (!entry) return;
+            this.mcHand = { zone: zoneKey, list, slot: s, slotCount };
+            window.SoundEngine.playUI();
+            if (opts.onChange) opts.onChange();
+          } else if (this.mcHand.zone === zoneKey && this.mcHand.slot === s) {
+            this.mcHand = null;
+            window.SoundEngine.playUI();
+            if (opts.onChange) opts.onChange();
+          } else {
+            this._completeMcMove(list, s, slotCount, opts.onChange);
+          }
+        };
+
+        container.appendChild(cell);
+      }
+    }
+
+    _completeMcMove(dstList, dstSlot, dstMaxSlots, onChange) {
+      const h = this.mcHand;
+      if (!h) return;
+      window.GameData.moveBetweenSlots(h.list, h.slot, dstList, dstSlot, dstMaxSlots);
+      this.mcHand = null;
+      window.SoundEngine.playUI();
+      this.game.save();
+      if (onChange) onChange();
+    }
+
+    renderLootModal() {
+      if (!this.activeLoot) return;
+      const g = this.game;
+      const prof = g.profile;
+      const src = this.activeLoot.obj;
+      const derived = window.GameData.getPlayerDerivedStats(prof);
+
+      $('loot-modal-title').textContent = (src.title || 'СУМКА С ХАБАРОМ').toUpperCase();
+      $('loot-src-heading').textContent = `${src.title || 'СУМКА'} (12 СЛОТОВ)`;
+      $('loot-src-count').textContent = `${src.items.length} слот.`;
+      $('loot-bag-weight').textContent = `${derived.weight.toFixed(1)} / ${derived.maxWeight.toFixed(0)} кг`;
+
+      const handBar = $('loot-hand-bar');
+      const dropBtn = $('btn-loot-drop-hand');
+      if (this.mcHand) {
+        const it = this.mcHand.list.find(x => x.slot === this.mcHand.slot);
+        const def = it ? window.GameData.ITEMS[it.id] : null;
+        if (def) {
+          handBar.classList.add('holding');
+          $('loot-hand-text').textContent = `✋ В руке: ${def.icon || ''} ${def.name} x${it.count} — нажмите на любую ячейку чтобы положить`;
+          dropBtn.classList.remove('hidden');
+        } else {
+          this.mcHand = null;
+        }
+      }
+      if (!this.mcHand) {
+        handBar.classList.remove('holding');
+        $('loot-hand-text').textContent = 'Нажмите на предмет, затем на пустую или занятую ячейку • Двойной тап — быстро перенести';
+        dropBtn.classList.add('hidden');
+      }
+
+      this._renderMcGrid($('loot-source-grid'), 'loot', src.items, 12, {
+        quickTargetList: prof.backpack,
+        quickTargetSlots: window.GameData.BACKPACK_SLOTS,
+        onChange: () => this.renderLootModal()
+      });
+      this._renderMcGrid($('loot-backpack-grid'), 'bag', prof.backpack, window.GameData.BACKPACK_SLOTS, {
+        quickTargetList: src.items,
+        quickTargetSlots: 12,
+        onChange: () => this.renderLootModal()
+      });
+    }
+
+    _lootTakeAll() {
+      if (!this.activeLoot) return;
+      const src = this.activeLoot.obj;
+      const prof = this.game.profile;
+      let moved = 0;
+      for (let i = src.items.length - 1; i >= 0; i--) {
+        const it = src.items[i];
+        if (window.GameData.addItemToList(prof.backpack, it.id, it.count, window.GameData.BACKPACK_SLOTS)) {
+          src.items.splice(i, 1);
+          moved++;
+        }
+      }
+      if (moved > 0) {
+        window.SoundEngine.playHeal();
+        this.game.toast(`✔ Забрано слотов: ${moved}`, 'good');
+      } else {
+        this.game.toast('Рюкзак полон или сумка пуста!', 'bad');
+      }
+      this.game.save();
+      if (src.items.length === 0) this.closeAllModals();
+      else this.renderLootModal();
     }
 
     triggerHitmarker(isHeadshot) {
@@ -505,15 +766,25 @@ window.GameUI = (function () {
       $('tbtn-wpn2').classList.toggle('active', !p.holdingDetector && p.activeSlot === 'secondary');
       $('tbtn-knife').classList.toggle('active', isMelee);
       $('tbtn-det').classList.toggle('active', p.holdingDetector);
+      $('tbtn-light').classList.toggle('active', !!p.flashlightOn);
       $('tbtn-ads').classList.toggle('active', this.input.ads);
 
-      // Clock, Weather, Money, Region
+      // Clock, Weather, Money, Region, Faction & Campfire pills
       $('hud-clock').textContent = g.world.getFormattedClock();
       $('hud-weather').textContent = g.world.getWeatherLabel(g.entities.emission.phase);
       $('hud-money').textContent = g.profile.money.toLocaleString('ru-RU') + ' ₽';
-      $('radar-zone-tag').textContent = g.world.getRegionName(p.x, p.z);
+      const pFac = g.profile.faction || 'stalker';
+      $('radar-zone-tag').textContent = g.world.getRegionName(p.x, p.z, pFac);
 
-      const inSafe = g.world.isSafeZone(p.x, p.z);
+      const facBadge = $('faction-badge');
+      if (facBadge) {
+        facBadge.textContent = pFac === 'bandit' ? 'БАНДИТЫ' : 'СТАЛКЕРЫ';
+        facBadge.className = 'status-pill ' + (pFac === 'bandit' ? 'faction-bandit' : 'faction-stalker');
+      }
+      const fireBadge = $('fire-badge');
+      if (fireBadge) fireBadge.classList.toggle('hidden', !p.nearCampfire);
+
+      const inSafe = g.world.isSafeZone(p.x, p.z, pFac);
       const hasRoof = inSafe || g.engine.hasRoofCover(p.x, p.y + 1.5, p.z);
       $('safe-badge').classList.toggle('hidden', !inSafe);
       $('roof-badge').classList.toggle('hidden', inSafe || !hasRoof);
@@ -652,33 +923,40 @@ window.GameUI = (function () {
         ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
       };
 
-      // Bar Safe Zone direction indicator
+      // Both Faction Base markers on radar
       plot(0, 0, '#5be07d', 4, true);
+      plot(-145, 78, '#ff8c30', 4, true);
 
-      // Active spots & Proto-anomalies
-      for (const sp of g.world.spots) plot(sp.x, sp.z, 'rgba(255, 140, 48, 0.75)', 2.8, false);
+      // Active spots, World Stashes & Proto-anomalies
+      for (const sp of g.world.spots) plot(sp.x, sp.z, 'rgba(255, 140, 48, 0.72)', 2.5, false);
+      for (const st of g.world.worldStashes) {
+        if (st.items.length > 0) plot(st.x, st.z, '#f2d96b', 2.4, false);
+      }
       for (const pr of g.world.protoAnomalies) plot(pr.x, pr.z, '#3ec8e8', 3.4, true);
 
-      // Signal Scan target
       if (g.entities.signalScan.active) {
         plot(g.entities.signalScan.targetX, g.entities.signalScan.targetZ, '#3ec8e8', 4, true);
       }
 
-      // Player's dropped Loot Bags
       for (const b of g.entities.lootBags) {
-        if (b.isPlayerBag) plot(b.x, b.z, '#c77dff', 4.2, true);
+        plot(b.x, b.z, b.isPlayerBag ? '#c77dff' : '#e5a93b', b.isPlayerBag ? 4.2 : 2.8, b.isPlayerBag);
       }
 
-      // Count humans (hostile bandits/stalkers) within 50m radius!
+      // Remote online players on radar
+      for (const rp of g.entities.remotePlayers) {
+        plot(rp.x, rp.z, rp.faction === 'bandit' ? '#ff7c32' : '#5be07d', 3.4, false);
+      }
+
+      // Count humans within 50m radius!
       let humanCount50m = 0;
       for (const en of g.entities.enemies) {
         if (en.hp <= 0) continue;
         const d = Math.hypot(en.x - p.x, en.z - p.z);
         if (en.isHuman && d <= 50) humanCount50m++;
-        if (d < RANGE) {
-          // Mutants show faint orange dots when close; humans show count on STALZONE radar!
-          if (!en.isHuman && d < 28) plot(en.x, en.z, '#ff6b4a', 2.2, false);
-        }
+        if (d < RANGE && !en.isHuman && d < 28) plot(en.x, en.z, '#ff6b4a', 2.2, false);
+      }
+      for (const rp of g.entities.remotePlayers) {
+        if (Math.hypot(rp.x - p.x, rp.z - p.z) <= 50) humanCount50m++;
       }
 
       // ICONIC STALZONE BEEP EVERY TIME HUMAN COUNT IN 50m INCREASES!
@@ -796,28 +1074,38 @@ window.GameUI = (function () {
         Реген HP: +${derived.hpRegen.toFixed(1)}/с • Дебафф артов: ☢${derived.artDebuffs.rad.toFixed(1)} ☣${derived.artDebuffs.bio.toFixed(1)} 🧠${derived.artDebuffs.psy.toFixed(1)}
       `;
 
-      // 4. Backpack Grid
+      // 4. Minecraft-style 24-Slot Backpack Grid!
       const grid = $('backpack-grid');
-      grid.innerHTML = '';
-      $('bag-count-label').textContent = prof.backpack.length + ' видов';
-      for (const entry of prof.backpack) {
-        const def = window.GameData.ITEMS[entry.id];
-        if (!def) continue;
-        const card = document.createElement('div');
-        card.className = `inv-item tier-${def.tier || 1}` + (this.selectedBagId === entry.id ? ' selected' : '');
-        card.innerHTML = `<div class="item-title">${def.name}</div><div class="item-meta"><span>x${entry.count}</span><span>${(def.weight * entry.count).toFixed(1)}кг</span></div>`;
-        card.onclick = () => {
-          this.selectedBagId = entry.id;
-          window.SoundEngine.playUI();
-          this.renderInventory();
-          this._renderInspector(entry);
-        };
-        grid.appendChild(card);
+      $('bag-count-label').textContent = `${prof.backpack.length} / ${window.GameData.BACKPACK_SLOTS}`;
+
+      const invHandBar = $('inv-hand-bar');
+      if (this.mcHand && this.mcHand.zone === 'inv_bag') {
+        const it = prof.backpack.find(x => x.slot === this.mcHand.slot);
+        const def = it ? window.GameData.ITEMS[it.id] : null;
+        if (def) {
+          invHandBar.classList.remove('hidden');
+          invHandBar.classList.add('holding');
+          $('inv-hand-text').textContent = `✋ ${def.icon || ''} ${def.name} x${it.count} — тап по другой ячейке для переноса`;
+        } else {
+          this.mcHand = null;
+          invHandBar.classList.add('hidden');
+        }
+      } else {
+        invHandBar.classList.add('hidden');
       }
 
-      const sel = prof.backpack.find(b => b.id === this.selectedBagId);
+      this._renderMcGrid(grid, 'inv_bag', prof.backpack, window.GameData.BACKPACK_SLOTS, {
+        selectedSlot: this.selectedBagSlot,
+        onInspect: (entry, slot) => {
+          this.selectedBagSlot = slot;
+          this.selectedBagId = entry.id;
+        },
+        onChange: () => this.renderInventory()
+      });
+
+      const sel = prof.backpack.find(b => b.slot === this.selectedBagSlot) || prof.backpack.find(b => b.id === this.selectedBagId);
       if (sel) this._renderInspector(sel);
-      else $('item-inspector').innerHTML = '<p class="muted">Выберите предмет из рюкзака.</p>';
+      else $('item-inspector').innerHTML = '<p class="muted">Нажмите на ячейку рюкзака чтобы посмотреть, использовать или переставить предмет.</p>';
     }
 
     _renderInspector(entry) {
@@ -898,22 +1186,22 @@ window.GameUI = (function () {
       $('pda-em-timer').textContent = em.phase === 'calm'
         ? `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`
         : `ИДЁТ (${sec}с)`;
-      $('pda-coords').textContent = `Координаты: X ${Math.round(p.x)} / Z ${Math.round(p.z)} • ${g.world.getRegionName(p.x, p.z)}`;
+      $('pda-coords').textContent = `Координаты: X ${Math.round(p.x)} / Z ${Math.round(p.z)} • ${g.world.getRegionName(p.x, p.z, g.profile.faction)}`;
 
-      // Render Interactive Zone Map Canvas
+      // Render Expanded 520x520m Interactive Zone Map Canvas
       const ctx = this.pdaCtx;
       const W = 480, H = 480;
-      const mapScale = W / 320;
+      const mapScale = W / 520;
       const toMap = (wx, wz) => ({ x: W * 0.5 + wx * mapScale, y: H * 0.5 + wz * mapScale });
 
       ctx.fillStyle = '#0d1511';
       ctx.fillRect(0, 0, W, H);
 
       // Regions tint
-      ctx.fillStyle = 'rgba(229, 196, 59, 0.08)'; // South Outskirts
+      ctx.fillStyle = 'rgba(229, 196, 59, 0.07)';
       ctx.fillRect(0, H * 0.5 + 24 * mapScale, W, H * 0.5);
-      ctx.fillStyle = 'rgba(222, 67, 56, 0.09)'; // North High-Risk
-      ctx.fillRect(0, 0, W, H * 0.5 - 24 * mapScale);
+      ctx.fillStyle = 'rgba(222, 67, 56, 0.09)';
+      ctx.fillRect(0, 0, W, H * 0.5 - 30 * mapScale);
 
       // Grid lines
       ctx.strokeStyle = 'rgba(130, 175, 145, 0.12)';
@@ -923,68 +1211,103 @@ window.GameUI = (function () {
         ctx.beginPath(); ctx.moveTo(pos, 0); ctx.lineTo(pos, H); ctx.moveTo(0, pos); ctx.lineTo(W, pos); ctx.stroke();
       }
 
-      // Main Road
+      // Main Road & Railways
       ctx.fillStyle = '#2c3330';
-      ctx.fillRect(W * 0.5 - 8, 10, 16, H - 20);
+      ctx.fillRect(W * 0.5 - 5, 10, 10, H - 20);
+      ctx.fillStyle = '#3b4244';
+      const rw1 = toMap(0, -34).y;
+      ctx.fillRect(18, rw1 - 1.5, W - 36, 3);
 
       // Swamps
-      ctx.fillStyle = 'rgba(42, 105, 76, 0.55)';
+      ctx.fillStyle = 'rgba(42, 105, 76, 0.52)';
       for (const s of g.world.swampPools) {
         const pt = toMap(s.x - s.w * 0.5, s.z - s.d * 0.5);
         ctx.fillRect(pt.x, pt.y, s.w * mapScale, s.d * mapScale);
       }
 
       // Contamination zones
-      const cCols = { rad: 'rgba(232,207,56,0.22)', bio: 'rgba(91,224,125,0.22)', therm: 'rgba(255,110,48,0.22)', psy: 'rgba(181,101,255,0.22)' };
+      const cCols = { rad: 'rgba(232,207,56,0.20)', bio: 'rgba(91,224,125,0.20)', therm: 'rgba(255,110,48,0.20)', psy: 'rgba(181,101,255,0.20)' };
       for (const cz of g.world.contamZones) {
         const pt = toMap(cz.x, cz.z);
         ctx.fillStyle = cCols[cz.type] || 'rgba(255,255,255,0.15)';
         ctx.beginPath(); ctx.arc(pt.x, pt.y, cz.radius * mapScale, 0, Math.PI * 2); ctx.fill();
       }
 
-      // Safe Zone Bar
+      // Safe Zone 1: Stalker Bar
       const barPt = toMap(0, 0);
       ctx.fillStyle = 'rgba(91, 224, 125, 0.25)';
       ctx.strokeStyle = '#5be07d';
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(barPt.x, barPt.y, 24 * mapScale, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 
+      // Safe Zone 2: Bandit Depot
+      const depPt = toMap(-145, 78);
+      ctx.fillStyle = 'rgba(255, 130, 50, 0.25)';
+      ctx.strokeStyle = '#ff8232';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(depPt.x, depPt.y, 24 * mapScale, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+      // World Stashes (yellow dots)
+      for (const st of g.world.worldStashes) {
+        if (st.items.length === 0) continue;
+        const pt = toMap(st.x, st.z);
+        ctx.fillStyle = '#f2d96b';
+        ctx.fillRect(pt.x - 3, pt.y - 3, 6, 6);
+      }
+
       // Spots, Proto, Signal, Bags
       for (const sp of g.world.spots) {
         const pt = toMap(sp.x, sp.z);
-        ctx.fillStyle = '#ff8c30';
-        ctx.beginPath(); ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = sp.kind === 'stalkers' ? '#68e88a' : (sp.kind === 'mercs' ? '#58c0ff' : '#ff8c30');
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2); ctx.fill();
       }
       for (const pr of g.world.protoAnomalies) {
         const pt = toMap(pr.x, pr.z);
         ctx.fillStyle = '#3ec8e8';
-        ctx.beginPath(); ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 5.5, 0, Math.PI * 2); ctx.fill();
       }
       if (g.entities.signalScan.active) {
         const pt = toMap(g.entities.signalScan.targetX, g.entities.signalScan.targetZ);
         ctx.strokeStyle = '#3ec8e8';
         ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(pt.x, pt.y, 12, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 11, 0, Math.PI * 2); ctx.stroke();
       }
       for (const b of g.entities.lootBags) {
         if (!b.isPlayerBag) continue;
         const pt = toMap(b.x, b.z);
         ctx.fillStyle = '#c77dff';
-        ctx.beginPath(); ctx.arc(pt.x, pt.y, 7, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2); ctx.fill();
       }
 
-      // Labels
-      ctx.font = 'bold 12px monospace';
-      ctx.fillStyle = '#76e896'; ctx.fillText('БАЗА «БАР»', barPt.x - 36, barPt.y + 4);
-      ctx.fillStyle = '#ff8c82'; ctx.fillText('СЕВЕР: ПРОМЗОНА / НИИ (ТИР 2-3)', 120, 26);
-      ctx.fillStyle = '#f2d96b'; ctx.fillText('ЮГ: БОЛОТА / ДЕРЕВНЯ (ТИР 1)', 125, H - 16);
+      // Labels for 520x520m Zone landmarks
+      ctx.font = 'bold 11px monospace';
+      ctx.fillStyle = '#76e896'; ctx.fillText('БАР (СТАЛКЕРЫ)', barPt.x - 42, barPt.y + 4);
+      ctx.fillStyle = '#ff9d5c'; ctx.fillText('ДЕПО (БАНДИТЫ)', depPt.x - 44, depPt.y + 4);
+      ctx.fillStyle = '#ff8c82'; ctx.fillText('РЛС «ДУГА» (ТИР 3)', W * 0.5 - 56, 22);
+      ctx.fillStyle = '#d4e2d8'; ctx.fillText('СВАЛКА', W - 82, H * 0.5 + 18);
+      ctx.fillStyle = '#f2d96b'; ctx.fillText('ЗАТОПЛЕННАЯ ДЕРЕВНЯ', W * 0.5 - 64, H - 14);
+
+      // Online remote players plotted on PDA map with callsigns
+      for (const rp of (g.entities.remotePlayers || [])) {
+        const rpt = toMap(rp.x, rp.z);
+        ctx.fillStyle = rp.faction === 'bandit' ? '#ff8c30' : '#5be07d';
+        ctx.strokeStyle = '#3ec8e8';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(rpt.x, rpt.y, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.font = 'bold 10px monospace';
+        ctx.fillStyle = '#9ceeff';
+        ctx.fillText(rp.name || 'Игрок', rpt.x + 7, rpt.y + 3);
+      }
 
       // Player marker
       const pl = toMap(p.x, p.z);
       ctx.fillStyle = '#e5a93b';
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(pl.x, pl.y, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(pl.x, pl.y, 5.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+      this.updateOnlineBadges();
+      this.renderRadioChat();
 
       // Render Quests Tab
       const qList = $('pda-quests-list');
@@ -1034,6 +1357,66 @@ window.GameUI = (function () {
           <p>Совет: Бросайте БОЛТ [B] в «Электру», чтобы разрядить её на 3 секунды. Достаньте ДЕТЕКТОР [G], чтобы проявлять скрытые артефакты и сканировать сигналы [X].</p>
         </div>
       `;
+    }
+
+    updateOnlineBadges() {
+      const m = this.game.onlineMeta || { sectorId: 'zone_1', onlineCount: 1 };
+      const secTag = m.sectorId === 'zone_2' ? 'С2' : 'С1';
+      const badge = $('online-badge');
+      if (badge) badge.textContent = `🌐 ОНЛАЙН: ${m.onlineCount || 1} • ${secTag}`;
+      if ($('btn-sector-1')) $('btn-sector-1').classList.toggle('active', m.sectorId !== 'zone_2');
+      if ($('btn-sector-2')) $('btn-sector-2').classList.toggle('active', m.sectorId === 'zone_2');
+    }
+
+    renderRadioChat() {
+      const g = this.game;
+      const m = g.onlineMeta || { callsign: 'Сталкер', sectorId: 'zone_1', onlineCount: 1 };
+      const countEl = $('online-roster-count');
+      const rosterEl = $('online-roster-list');
+      const feedEl = $('radio-chat-feed');
+      if (countEl) {
+        countEl.textContent = `Игроков в ${m.sectorId === 'zone_2' ? 'Секторе 2' : 'Секторе 1'}: ${m.onlineCount || 1}`;
+      }
+      if (rosterEl) {
+        rosterEl.innerHTML = '';
+        const myFac = g.profile.faction || 'stalker';
+        const selfRow = document.createElement('div');
+        selfRow.className = 'roster-row fac-' + myFac;
+        selfRow.innerHTML = `<span>★ ${m.callsign || 'Вы'} (Вы)</span><span>${Math.round(g.player.hp)} HP</span>`;
+        rosterEl.appendChild(selfRow);
+        for (const rp of (g.entities.remotePlayers || [])) {
+          const row = document.createElement('div');
+          row.className = 'roster-row fac-' + (rp.faction === 'bandit' ? 'bandit' : 'stalker');
+          const safeName = String(rp.name || 'Игрок').replace(/[<>&]/g, '');
+          row.innerHTML = `<span>${safeName}</span><span>${Math.round(rp.hp ?? 100)} HP</span>`;
+          rosterEl.appendChild(row);
+        }
+      }
+      if (feedEl) {
+        feedEl.innerHTML = '';
+        const msgs = g.chatMessages || [];
+        if (msgs.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'muted';
+          empty.style.fontSize = '11px';
+          empty.textContent = 'Эфир чист. Напишите сообщение сталкерам в вашем секторе.';
+          feedEl.appendChild(empty);
+        } else {
+          for (const msg of msgs) {
+            const div = document.createElement('div');
+            div.className = 'chat-msg fac-' + (msg.faction === 'bandit' ? 'bandit' : 'stalker');
+            const author = document.createElement('span');
+            author.className = 'chat-author';
+            author.textContent = `[${msg.callsign || 'Сталкер'}]:`;
+            const body = document.createElement('span');
+            body.textContent = msg.text || '';
+            div.appendChild(author);
+            div.appendChild(body);
+            feedEl.appendChild(div);
+          }
+          feedEl.scrollTop = feedEl.scrollHeight;
+        }
+      }
     }
 
     // === BAR NPC SERVICES MODAL ===
@@ -1236,39 +1619,38 @@ window.GameUI = (function () {
         }
         body.appendChild(list);
       } else if (npcId === 'stash') {
-        $('npc-modal-title').textContent = 'ЛИЧНЫЙ СХРОН (ХРАНИЛИЩЕ БАРА)';
-        $('npc-modal-sub').textContent = 'Переложите хабар в Схрон — он в полной безопасности при смерти!';
+        $('npc-modal-title').textContent = 'ЛИЧНЫЙ СХРОН (24 ↔ 24 СЛОТА)';
+        $('npc-modal-sub').textContent = 'Перетаскивайте или нажимайте по слотам (как в Minecraft) • Двойной тап — быстрый перенос';
         const split = document.createElement('div');
         split.className = 'stash-split';
 
-        const makeCol = (title, srcList, dstList, actionLabel) => {
-          const col = document.createElement('div');
-          col.className = 'inv-col';
-          col.innerHTML = `<h3>${title}</h3>`;
-          const grid = document.createElement('div');
-          grid.className = 'item-grid';
-          for (const entry of srcList) {
-            const def = window.GameData.ITEMS[entry.id];
-            if (!def) continue;
-            const c = document.createElement('div');
-            c.className = `inv-item tier-${def.tier || 1}`;
-            c.innerHTML = `<div class="item-title">${def.name}</div><div class="item-meta"><span>x${entry.count}</span><span>${actionLabel}</span></div>`;
-            c.onclick = () => {
-              const qty = def.type === 'ammo' ? Math.min(30, entry.count) : 1;
-              window.GameData.removeItemFromList(srcList, entry.id, qty);
-              window.GameData.addItemToList(dstList, entry.id, qty);
-              window.SoundEngine.playUI();
-              g.save();
-              this.renderNpcModal();
-            };
-            grid.appendChild(c);
-          }
-          col.appendChild(grid);
-          return col;
-        };
+        const bagPane = document.createElement('div');
+        bagPane.className = 'loot-pane';
+        bagPane.innerHTML = '<h3>ВАШ РЮКЗАК (24 СЛОТА)</h3>';
+        const bagGrid = document.createElement('div');
+        bagGrid.className = 'mc-grid mc-grid-bag';
+        bagPane.appendChild(bagGrid);
 
-        split.appendChild(makeCol('РЮКЗАК → В СХРОН', prof.backpack, prof.stash, '→'));
-        split.appendChild(makeCol('СХРОН → В РЮКЗАК', prof.stash, prof.backpack, '←'));
+        const stPane = document.createElement('div');
+        stPane.className = 'loot-pane';
+        stPane.innerHTML = '<h3>ЛИЧНЫЙ СХРОН (24 СЛОТА)</h3>';
+        const stGrid = document.createElement('div');
+        stGrid.className = 'mc-grid mc-grid-bag';
+        stPane.appendChild(stGrid);
+
+        this._renderMcGrid(bagGrid, 'stash_bag', prof.backpack, window.GameData.BACKPACK_SLOTS, {
+          quickTargetList: prof.stash,
+          quickTargetSlots: window.GameData.BACKPACK_SLOTS,
+          onChange: () => this.renderNpcModal()
+        });
+        this._renderMcGrid(stGrid, 'stash_box', prof.stash, window.GameData.BACKPACK_SLOTS, {
+          quickTargetList: prof.backpack,
+          quickTargetSlots: window.GameData.BACKPACK_SLOTS,
+          onChange: () => this.renderNpcModal()
+        });
+
+        split.appendChild(bagPane);
+        split.appendChild(stPane);
         body.appendChild(split);
       }
     }

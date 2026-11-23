@@ -44,9 +44,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +65,21 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.credentials.CredentialManager
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.multiplayer.SectorChatMessage
+import com.example.multiplayer.SectorPlayer
+import com.example.multiplayer.UiState
+import com.example.multiplayer.ZoneAuthScreen
+import com.example.multiplayer.ZoneMultiplayerRepository
+import com.example.multiplayer.ZoneMultiplayerViewModel
+import com.example.multiplayer.authStateFlow
+import com.example.multiplayer.sanitizeCallsign
+import com.example.multiplayer.signOutFromZone
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.ZoneAmber
 import com.example.ui.theme.ZoneBorder
@@ -69,11 +87,18 @@ import com.example.ui.theme.ZoneGunmetal
 import com.example.ui.theme.ZoneTextMuted
 import com.example.ui.theme.ZoneTextPrimary
 import com.example.ui.theme.ZoneVoid
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.ByteArrayInputStream
 
 class MainActivity : ComponentActivity() {
 
     private var webViewRef: WebView? = null
+    private var onPauseCleanup: (() -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,8 +108,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MyApplicationTheme {
-                StalzoneHostScreen(
+                StalzoneAppRoot(
                     onWebViewReady = { webViewRef = it },
+                    onRegisterPauseCleanup = { onPauseCleanup = it },
                     onExitApp = { finish() }
                 )
             }
@@ -106,6 +132,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         webViewRef?.evaluateJavascript("window.STALZONE_SAVE && window.STALZONE_SAVE();", null)
+        onPauseCleanup?.invoke()
         webViewRef?.onPause()
         super.onPause()
     }
@@ -119,10 +146,52 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@Composable
+private fun StalzoneAppRoot(
+    onWebViewReady: (WebView?) -> Unit,
+    onRegisterPauseCleanup: ((() -> Unit)?) -> Unit,
+    onExitApp: () -> Unit
+) {
+    val auth = remember { Firebase.auth }
+    val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
+    val user = currentUser
+
+    if (user == null) {
+        LaunchedEffect(Unit) {
+            onWebViewReady(null)
+            onRegisterPauseCleanup(null)
+        }
+        ZoneAuthScreen(onAuthSuccess = { /* AuthStateFlow automatically transitions UI */ })
+    } else {
+        val uid = user.uid
+        val initialCallsign = remember(uid, user.displayName, user.email) {
+            val raw = user.displayName?.takeIf { it.isNotBlank() }
+                ?: user.email?.substringBefore("@")?.takeIf { it.isNotBlank() }
+                ?: "Сталкер_${uid.take(5)}"
+            sanitizeCallsign(raw)
+        }
+        key(uid) {
+            StalzoneHostScreen(
+                currentUserId = uid,
+                initialCallsign = initialCallsign,
+                onWebViewReady = onWebViewReady,
+                onRegisterPauseCleanup = onRegisterPauseCleanup,
+                onExitApp = onExitApp
+            )
+        }
+    }
+}
+
 private class StalzoneBridge(
     private val context: Context,
     private val onReady: () -> Unit,
-    private val onRequestExit: () -> Unit
+    private val onRequestExit: () -> Unit,
+    private val onSyncOnlineState: (String, Double, Double, Double, Double, Long, String, Boolean, Boolean) -> Unit,
+    private val onSendPvpHit: (String, String, Long, Boolean, String) -> Unit,
+    private val onSaveCloudProfile: (String, Long, Long, Long, Long, String, String, String) -> Unit,
+    private val onSetOnlineSector: (String) -> Unit,
+    private val onSendChatMessage: (String, String) -> Unit,
+    private val onRequestSignOut: () -> Unit
 ) {
     private val vibrator: Vibrator? by lazy {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -142,6 +211,70 @@ private class StalzoneBridge(
     @JavascriptInterface
     fun requestExit() {
         onRequestExit()
+    }
+
+    @JavascriptInterface
+    fun syncOnlineState(
+        faction: String,
+        x: Double,
+        y: Double,
+        z: Double,
+        yaw: Double,
+        hp: Int,
+        weaponId: String,
+        moving: Boolean,
+        firing: Boolean
+    ) {
+        onSyncOnlineState(faction, x, y, z, yaw, hp.toLong(), weaponId, moving, firing)
+    }
+
+    @JavascriptInterface
+    fun sendPvpHit(
+        attackerFaction: String,
+        targetUid: String,
+        damage: Int,
+        headshot: Boolean,
+        weapon: String
+    ) {
+        onSendPvpHit(attackerFaction, targetUid, damage.toLong(), headshot, weapon)
+    }
+
+    @JavascriptInterface
+    fun saveCloudProfile(
+        faction: String,
+        money: Int,
+        kills: Int,
+        deaths: Int,
+        artifactsFound: Int,
+        primaryWeapon: String,
+        secondaryWeapon: String,
+        armorId: String
+    ) {
+        onSaveCloudProfile(
+            faction,
+            money.toLong(),
+            kills.toLong(),
+            deaths.toLong(),
+            artifactsFound.toLong(),
+            primaryWeapon,
+            secondaryWeapon,
+            armorId
+        )
+    }
+
+    @JavascriptInterface
+    fun setOnlineSector(sectorId: String) {
+        onSetOnlineSector(sectorId)
+    }
+
+    @JavascriptInterface
+    fun sendChatMessage(faction: String, text: String) {
+        onSendChatMessage(faction, text)
+    }
+
+    @JavascriptInterface
+    fun requestSignOut() {
+        onRequestSignOut()
     }
 
     @JavascriptInterface
@@ -175,13 +308,161 @@ private class StalzoneBridge(
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun StalzoneHostScreen(
-    onWebViewReady: (WebView) -> Unit,
+    currentUserId: String,
+    initialCallsign: String,
+    onWebViewReady: (WebView?) -> Unit,
+    onRegisterPauseCleanup: ((() -> Unit)?) -> Unit,
     onExitApp: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
+
+    val multiplayerViewModel: ZoneMultiplayerViewModel = viewModel(
+        key = currentUserId,
+        factory = viewModelFactory {
+            initializer {
+                val app = checkNotNull(this[APPLICATION_KEY]) {
+                    "APPLICATION_KEY missing from CreationExtras"
+                }
+                val databaseId = app.getString(R.string.firestore_database_id)
+                val db = FirebaseFirestore.getInstance(databaseId)
+                ZoneMultiplayerViewModel(
+                    repository = ZoneMultiplayerRepository(db),
+                    currentUserId = currentUserId,
+                    initialCallsign = initialCallsign
+                )
+            }
+        }
+    )
+
+    val sectorPlayersState by multiplayerViewModel.sectorPlayersState.collectAsStateWithLifecycle()
+    val incomingHitsState by multiplayerViewModel.incomingPvpHitsState.collectAsStateWithLifecycle()
+    val sectorChatState by multiplayerViewModel.sectorChatState.collectAsStateWithLifecycle()
+    val activeSectorId by multiplayerViewModel.activeSectorId.collectAsStateWithLifecycle()
+    val callsign by multiplayerViewModel.callsign.collectAsStateWithLifecycle()
+    val cloudProfile by multiplayerViewModel.cloudProfile.collectAsStateWithLifecycle()
+
     var isGameReady by remember { mutableStateOf(false) }
     var showExitDialog by remember { mutableStateOf(false) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+
+    DisposableEffect(multiplayerViewModel) {
+        onRegisterPauseCleanup {
+            scope.launch { multiplayerViewModel.goOfflineNow() }
+        }
+        onDispose {
+            onRegisterPauseCleanup(null)
+            scope.launch { multiplayerViewModel.goOfflineNow() }
+            webViewInstance?.destroy()
+        }
+    }
+
+    // Push remote players & online meta into WebView whenever sector snapshot updates
+    LaunchedEffect(isGameReady, sectorPlayersState, activeSectorId, callsign) {
+        val wv = webViewInstance ?: return@LaunchedEffect
+        if (!isGameReady) return@LaunchedEffect
+
+        val players: List<SectorPlayer> = when (val state = sectorPlayersState) {
+            is UiState.Success -> state.data
+            else -> emptyList()
+        }
+        val nowMs = System.currentTimeMillis()
+        val remoteArray = JSONArray()
+        var activeOnlineCount = 1
+        for (p in players) {
+            if (p.userId == currentUserId || p.id == currentUserId) continue
+            val updatedMs = p.updatedAt?.toDate()?.time ?: nowMs
+            if (nowMs - updatedMs > 90_000L) continue
+            activeOnlineCount++
+            remoteArray.put(
+                JSONObject().apply {
+                    put("uid", p.userId)
+                    put("name", p.callsign)
+                    put("faction", p.faction)
+                    put("weapon", p.weaponId)
+                    put("x", p.x)
+                    put("y", p.y)
+                    put("z", p.z)
+                    put("yaw", p.yaw)
+                    put("hp", p.hp)
+                    put("moving", p.moving)
+                    put("firing", p.firing)
+                }
+            )
+        }
+
+        val metaJson = JSONObject().apply {
+            put("connected", sectorPlayersState !is UiState.Error)
+            put("sectorId", activeSectorId)
+            put("callsign", callsign)
+            put("uid", currentUserId)
+            put("onlineCount", activeOnlineCount)
+        }
+
+        val js = "window.STALZONE_REMOTE_PLAYERS && window.STALZONE_REMOTE_PLAYERS($remoteArray);" +
+            "window.STALZONE_ONLINE_META && window.STALZONE_ONLINE_META($metaJson);"
+        wv.evaluateJavascript(js, null)
+    }
+
+    // Push PDA radio chat messages into WebView
+    LaunchedEffect(isGameReady, sectorChatState) {
+        val wv = webViewInstance ?: return@LaunchedEffect
+        if (!isGameReady) return@LaunchedEffect
+        val messages: List<SectorChatMessage> = (sectorChatState as? UiState.Success)?.data ?: return@LaunchedEffect
+        val chatArray = JSONArray()
+        for (msg in messages) {
+            chatArray.put(
+                JSONObject().apply {
+                    put("id", msg.id)
+                    put("callsign", msg.callsign)
+                    put("faction", msg.faction)
+                    put("text", msg.text)
+                }
+            )
+        }
+        wv.evaluateJavascript("window.STALZONE_CHAT_UPDATE && window.STALZONE_CHAT_UPDATE($chatArray);", null)
+    }
+
+    // Push cloud profile once loaded into WebView
+    LaunchedEffect(isGameReady, cloudProfile) {
+        val wv = webViewInstance ?: return@LaunchedEffect
+        val profile = cloudProfile ?: return@LaunchedEffect
+        if (!isGameReady) return@LaunchedEffect
+        val json = JSONObject().apply {
+            put("callsign", profile.callsign)
+            put("faction", profile.faction)
+            put("money", profile.money)
+            put("kills", profile.kills)
+            put("deaths", profile.deaths)
+            put("artifactsFound", profile.artifactsFound)
+            put("armorId", profile.armorId)
+            put("primaryWeapon", profile.primaryWeaponId)
+            put("secondaryWeapon", profile.secondaryWeaponId)
+            put("sectorId", profile.sectorId)
+        }
+        wv.evaluateJavascript("window.STALZONE_CLOUD_PROFILE && window.STALZONE_CLOUD_PROFILE($json);", null)
+    }
+
+    // Relay incoming PvP hits to WebView and delete consumed Firestore docs
+    LaunchedEffect(isGameReady, incomingHitsState) {
+        val wv = webViewInstance ?: return@LaunchedEffect
+        if (!isGameReady) return@LaunchedEffect
+        val hits = (incomingHitsState as? UiState.Success)?.data ?: return@LaunchedEffect
+        for (hit in hits) {
+            if (multiplayerViewModel.markHitProcessedAndConsume(hit)) {
+                val hitJson = JSONObject().apply {
+                    put("attackerUid", hit.attackerUid)
+                    put("attackerName", hit.attackerName)
+                    put("attackerFaction", hit.attackerFaction)
+                    put("damage", hit.damage)
+                    put("headshot", hit.headshot)
+                    put("weapon", hit.weapon)
+                }
+                wv.evaluateJavascript("window.STALZONE_PVP_HIT && window.STALZONE_PVP_HIT($hitJson);", null)
+            }
+        }
+    }
 
     BackHandler(enabled = true) {
         val wv = webViewInstance
@@ -193,12 +474,6 @@ fun StalzoneHostScreen(
             }
         } else {
             showExitDialog = true
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            webViewInstance?.destroy()
         }
     }
 
@@ -237,7 +512,37 @@ fun StalzoneHostScreen(
                     val bridge = StalzoneBridge(
                         context = ctx,
                         onReady = { post { isGameReady = true } },
-                        onRequestExit = { post { showExitDialog = true } }
+                        onRequestExit = { post { showExitDialog = true } },
+                        onSyncOnlineState = { faction, x, y, z, yaw, hp, weaponId, moving, firing ->
+                            multiplayerViewModel.syncPlayerPosition(
+                                faction, x, y, z, yaw, hp, weaponId, moving, firing
+                            )
+                        },
+                        onSendPvpHit = { attackerFaction, targetUid, damage, headshot, weapon ->
+                            multiplayerViewModel.sendPvpHit(
+                                attackerFaction, targetUid, damage, headshot, weapon
+                            )
+                        },
+                        onSaveCloudProfile = { faction, money, kills, deaths, artifactsFound, primaryWpn, secondaryWpn, armorId ->
+                            multiplayerViewModel.syncCloudProfile(
+                                faction, money, kills, deaths, artifactsFound, primaryWpn, secondaryWpn, armorId
+                            )
+                        },
+                        onSetOnlineSector = { sectorId ->
+                            multiplayerViewModel.switchSector(sectorId)
+                        },
+                        onSendChatMessage = { faction, text ->
+                            multiplayerViewModel.sendChatMessage(faction, text)
+                        },
+                        onRequestSignOut = {
+                            post {
+                                signOutFromZone(
+                                    credentialManager = credentialManager,
+                                    scope = scope,
+                                    beforeSignOut = { multiplayerViewModel.goOfflineNow() }
+                                )
+                            }
+                        }
                     )
                     addJavascriptInterface(bridge, "AndroidBridge")
 
@@ -265,6 +570,8 @@ fun StalzoneHostScreen(
                                         assetPath.endsWith(".json") -> "application/json"
                                         assetPath.endsWith(".svg") -> "image/svg+xml"
                                         assetPath.endsWith(".png") -> "image/png"
+                                        assetPath.endsWith(".jpg") || assetPath.endsWith(".jpeg") -> "image/jpeg"
+                                        assetPath.endsWith(".webp") -> "image/webp"
                                         else -> "application/octet-stream"
                                     }
                                     WebResourceResponse(
@@ -388,8 +695,11 @@ fun StalzoneHostScreen(
                                 "window.STALZONE_SAVE && window.STALZONE_SAVE();",
                                 null
                             )
-                            showExitDialog = false
-                            onExitApp()
+                            scope.launch {
+                                multiplayerViewModel.goOfflineNow()
+                                showExitDialog = false
+                                onExitApp()
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = ZoneAmber,

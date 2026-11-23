@@ -1,0 +1,106 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private player cloud progression, faction, currency, and loadout metadata.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "callsign": { "type": "string", "description": "Display callsign shown to other players in the Zone." },
+        "faction": { "type": "string", "enum": ["stalker", "bandit"], "description": "Selected faction alignment." },
+        "money": { "type": "integer", "description": "Player ruble balance." },
+        "kills": { "type": "integer", "description": "Total enemy eliminations." },
+        "deaths": { "type": "integer", "description": "Total deaths in the Zone." },
+        "artifactsFound": { "type": "integer", "description": "Total artifacts extracted." },
+        "armorId": { "type": "string", "description": "Equipped armor identifier." },
+        "primaryWeaponId": { "type": "string", "description": "Equipped primary weapon identifier." },
+        "secondaryWeaponId": { "type": "string", "description": "Equipped secondary weapon identifier." },
+        "sectorId": { "type": "string", "description": "Active multiplayer sector identifier." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of profile creation (FieldValue.serverTimestamp())." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of last profile sync (FieldValue.serverTimestamp())." }
+      },
+      "required": [
+        "userId", "callsign", "faction", "money", "kills", "deaths", "artifactsFound",
+        "armorId", "primaryWeaponId", "secondaryWeaponId", "sectorId", "createdAt", "updatedAt"
+      ]
+    },
+    "SectorPlayer": {
+      "title": "SectorPlayer",
+      "description": "Real-time multiplayer position, faction, and combat state of a player in a Zone sector.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID matching the document ID." },
+        "sectorId": { "type": "string", "description": "Sector identifier matching the parent path." },
+        "callsign": { "type": "string", "description": "Public in-game callsign (no PII)." },
+        "faction": { "type": "string", "enum": ["stalker", "bandit"], "description": "Player faction." },
+        "weaponId": { "type": "string", "description": "Currently held weapon ID." },
+        "x": { "type": "number", "description": "World X coordinate." },
+        "y": { "type": "number", "description": "World Y coordinate." },
+        "z": { "type": "number", "description": "World Z coordinate." },
+        "yaw": { "type": "number", "description": "Facing yaw angle in radians." },
+        "hp": { "type": "integer", "description": "Current health points (0..200)." },
+        "moving": { "type": "boolean", "description": "Whether the player is moving." },
+        "firing": { "type": "boolean", "description": "Whether the player is firing." },
+        "online": { "type": "boolean", "description": "Whether the player is actively connected to this sector." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of initial sector join." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of last position heartbeat." }
+      },
+      "required": [
+        "userId", "sectorId", "callsign", "faction", "weaponId",
+        "x", "y", "z", "yaw", "hp", "moving", "firing", "online", "createdAt", "updatedAt"
+      ]
+    },
+    "PvpHitEvent": {
+      "title": "PvpHitEvent",
+      "description": "Immutable PvP bullet hit event sent from attacker to target player in the same sector.",
+      "type": "object",
+      "properties": {
+        "attackerUid": { "type": "string", "description": "Attacker Firebase Auth UID." },
+        "attackerName": { "type": "string", "description": "Attacker display callsign." },
+        "attackerFaction": { "type": "string", "enum": ["stalker", "bandit"], "description": "Attacker faction." },
+        "targetUid": { "type": "string", "description": "Target victim Firebase Auth UID." },
+        "sectorId": { "type": "string", "description": "Sector identifier where the hit occurred." },
+        "damage": { "type": "integer", "description": "Damage dealt (1..120)." },
+        "headshot": { "type": "boolean", "description": "Whether the hit was a critical headshot." },
+        "weapon": { "type": "string", "description": "Weapon name or ID used for the shot." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of the hit event." }
+      },
+      "required": [
+        "attackerUid", "attackerName", "attackerFaction", "targetUid",
+        "sectorId", "damage", "headshot", "weapon", "createdAt"
+      ]
+    },
+    "SectorChatMessage": {
+      "title": "SectorChatMessage",
+      "description": "Real-time PDA radio chat message broadcast inside a Zone sector.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Author Firebase Auth UID." },
+        "sectorId": { "type": "string", "description": "Sector identifier." },
+        "callsign": { "type": "string", "description": "Author callsign." },
+        "faction": { "type": "string", "enum": ["stalker", "bandit"], "description": "Author faction." },
+        "text": { "type": "string", "description": "Radio message body (1..160 chars)." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of message creation." }
+      },
+      "required": ["userId", "sectorId", "callsign", "faction", "text", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-private cloud profile and loadout state for each authenticated player."
+    },
+    "/sectors/{sectorId}/players/{playerId}": {
+      "schema": { "$ref": "#/entities/SectorPlayer" },
+      "description": "Live multiplayer presence and coordinates for players currently online in a Zone sector."
+    },
+    "/sectors/{sectorId}/pvp_hits/{hitId}": {
+      "schema": { "$ref": "#/entities/PvpHitEvent" },
+      "description": "Real-time PvP damage events delivered to a target player in a Zone sector."
+    },
+    "/sectors/{sectorId}/chat/{msgId}": {
+      "schema": { "$ref": "#/entities/SectorChatMessage" },
+      "description": "Real-time PDA radio chat messages for players in the same sector."
+    }
+  }
+}

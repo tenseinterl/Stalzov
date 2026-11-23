@@ -177,7 +177,7 @@ window.Engine3D = (function () {
     void main() {
       vec4 texel = texture2D(uTex, vUV);
       float alpha = texel.a * uTint.a;
-      if (alpha < 0.14) discard;
+      if (alpha < 0.28) discard;
 
       vec3 baseCol = texel.rgb * uTint.rgb * vCol;
       vec3 n = normalize(vNormal);
@@ -361,30 +361,67 @@ window.Engine3D = (function () {
           ctx.fillRect(x, 0, 3, S);
         }
         break;
-      case 'leaves': // Sparse gnarled autumn-swamp foliage with alpha cutouts!
-        ctx.clearRect(0, 0, S, S);
-        for (let i = 0; i < 160; i++) {
-          const x = Math.random() * (S - 10), y = Math.random() * (S - 10);
-          const cols = ['#5c4724', '#7a5226', '#3d4d2c', '#4a3c22', '#8c5a28'];
+      case 'leaves': { // 256x256 organic clustered autumn swamp leaves
+        const LS = 256;
+        c.width = LS; c.height = LS;
+        ctx.clearRect(0, 0, LS, LS);
+        const cols = ['#564422', '#704b22', '#3a4b29', '#493c21', '#825525', '#2f3d23'];
+        for (let i = 0; i < 240; i++) {
+          const lx = 18 + Math.random() * (LS - 36);
+          const ly = 18 + Math.random() * (LS - 36);
+          const rx = 5 + Math.random() * 8;
+          const ry = 3 + Math.random() * 4.5;
+          ctx.save();
+          ctx.translate(lx, ly);
+          ctx.rotate(Math.random() * Math.PI);
           ctx.fillStyle = cols[i % cols.length];
-          ctx.fillRect(x, y, 7 + Math.random() * 6, 7 + Math.random() * 6);
-        }
-        break;
-      case 'grass_tuft': // Tall alpha-cutout swamp grass & reeds!
-        ctx.clearRect(0, 0, S, S);
-        for (let i = 0; i < 34; i++) {
-          const bx = 6 + Math.random() * (S - 12);
-          const bh = 46 + Math.random() * 76;
-          const lean = (Math.random() - 0.5) * 28;
-          ctx.strokeStyle = i % 3 === 0 ? '#786234' : (i % 2 === 0 ? '#4d5d32' : '#3a4a2a');
-          ctx.lineWidth = 3 + Math.random() * 2;
           ctx.beginPath();
-          ctx.moveTo(bx, S);
-          ctx.quadraticCurveTo(bx + lean * 0.4, S - bh * 0.55, bx + lean, S - bh);
-          ctx.stroke();
+          ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
         }
         break;
-      case 'camo_net': // Overhead military camouflage netting (just like Screenshot 1!)
+      }
+      case 'grass_tuft': { // 256x256 realistic dense tapered wild grass, sedge & autumn reed tuft!
+        const GS = 256;
+        c.width = GS; c.height = GS;
+        ctx.clearRect(0, 0, GS, GS);
+        const palettes = [
+          ['#1a2414', '#394b25', '#687039'],
+          ['#222616', '#4d572c', '#8a7a3e'],
+          ['#262115', '#5a4d28', '#997a3a'],
+          ['#162216', '#2f4526', '#566b38']
+        ];
+        // Back layer: dense dark lower undergrowth blades
+        for (let i = 0; i < 115; i++) {
+          const bx = 14 + Math.random() * (GS - 28);
+          const bh = 68 + Math.random() * 176;
+          const lean = (Math.random() - 0.5) * 68;
+          const baseW = 3.2 + Math.random() * 4.2;
+          const pal = palettes[i % palettes.length];
+          const grad = ctx.createLinearGradient(bx, GS, bx + lean, GS - bh);
+          grad.addColorStop(0.0, pal[0]);
+          grad.addColorStop(0.48, pal[1]);
+          grad.addColorStop(1.0, pal[2]);
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.moveTo(bx - baseW * 0.5, GS);
+          ctx.quadraticCurveTo(bx + lean * 0.35 - baseW * 0.25, GS - bh * 0.55, bx + lean, GS - bh);
+          ctx.quadraticCurveTo(bx + lean * 0.4 + baseW * 0.25, GS - bh * 0.55, bx + baseW * 0.5, GS);
+          ctx.closePath();
+          ctx.fill();
+
+          // Wild marsh grass seed plumes on taller reeds
+          if (bh > 175 && i % 4 === 0) {
+            ctx.fillStyle = 'rgba(168, 146, 88, 0.92)';
+            ctx.beginPath();
+            ctx.ellipse(bx + lean, GS - bh + 5, 2.5, 9, lean * 0.008, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        break;
+      }
+      case 'camo_net': // Overhead military camouflage netting
         ctx.clearRect(0, 0, S, S);
         ctx.strokeStyle = 'rgba(42, 48, 34, 0.85)';
         ctx.lineWidth = 2;
@@ -398,7 +435,7 @@ window.Engine3D = (function () {
           ctx.fillRect(Math.random() * (S - 14), Math.random() * (S - 10), 10 + Math.random() * 8, 6 + Math.random() * 6);
         }
         break;
-      case 'camo_armor': // Stalker voxel camo plate armor texture
+      case 'camo_armor': // Stalker camo armor placeholder (upgraded by real camo_armor.jpg)
         fillNoise(62, 68, 54, 22, 4);
         for (let i = 0; i < 38; i++) {
           ctx.fillStyle = i % 3 === 0 ? '#32382c' : (i % 2 === 0 ? '#7a6846' : '#464e3d');
@@ -408,14 +445,18 @@ window.Engine3D = (function () {
         ctx.lineWidth = 3;
         ctx.strokeRect(4, 4, S - 8, S - 8);
         break;
-      case 'gunmetal': // Brushed weathered firearm steel with rivets & edge wear
-        fillNoise(68, 74, 78, 22, 4);
-        for (let y = 0; y < S; y += 6) {
-          ctx.fillStyle = 'rgba(130,145,155,0.12)';
-          ctx.fillRect(0, y, S, 2);
+      case 'gunmetal': // Brushed weathered firearm steel with micro-scratches & rivets
+        fillNoise(66, 72, 76, 18, 2);
+        for (let y = 0; y < S; y += 4) {
+          ctx.fillStyle = 'rgba(145,160,170,0.10)';
+          ctx.fillRect(0, y, S, 1);
         }
-        ctx.strokeStyle = 'rgba(160,175,185,0.28)';
-        ctx.lineWidth = 3;
+        for (let i = 0; i < 18; i++) {
+          ctx.fillStyle = 'rgba(180,190,195,0.16)';
+          ctx.fillRect(Math.random() * S, Math.random() * S, 8 + Math.random() * 18, 1);
+        }
+        ctx.strokeStyle = 'rgba(160,175,185,0.24)';
+        ctx.lineWidth = 2;
         ctx.strokeRect(3, 3, S - 6, S - 6);
         break;
       case 'roof':
@@ -449,7 +490,7 @@ window.Engine3D = (function () {
         break;
       case 'white':
       default:
-        fillNoise(230, 234, 232, 18, 8);
+        fillNoise(232, 236, 234, 14, 8);
         break;
     }
 
@@ -457,12 +498,38 @@ window.Engine3D = (function () {
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
     const isAlphaCutout = (kind === 'grass_tuft' || kind === 'leaves' || kind === 'camo_net' || kind === 'wire');
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, isAlphaCutout ? gl.LINEAR : gl.LINEAR_MIPMAP_LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, isAlphaCutout ? gl.LINEAR : gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, isAlphaCutout ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, isAlphaCutout ? gl.CLAMP_TO_EDGE : gl.REPEAT);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, isAlphaCutout ? gl.CLAMP_TO_EDGE : gl.REPEAT);
-    if (!isAlphaCutout) gl.generateMipmap(gl.TEXTURE_2D);
+    gl.generateMipmap(gl.TEXTURE_2D);
     return tex;
+  }
+
+  function loadRealTextureIntoHandle(gl, tex, url, anisoExt) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        // Resize cleanly to 512x512 POT for WebGL 1.0 gl.REPEAT + Mipmaps
+        const pot = document.createElement('canvas');
+        pot.width = 512; pot.height = 512;
+        const pctx = pot.getContext('2d');
+        pctx.drawImage(img, 0, 0, 512, 512);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, pot);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        if (anisoExt) {
+          const maxA = gl.getParameter(anisoExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 4;
+          gl.texParameterf(gl.TEXTURE_2D, anisoExt.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(4, maxA));
+        }
+        gl.generateMipmap(gl.TEXTURE_2D);
+      } catch (_) {}
+    };
+    img.src = url;
   }
 
   class Engine {
@@ -518,6 +585,10 @@ window.Engine3D = (function () {
         uLightCol: gl.getUniformLocation(this.prog, 'uLightCol[0]')
       };
 
+      this.anisoExt = gl.getExtension('EXT_texture_filter_anisotropic')
+        || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic')
+        || gl.getExtension('MOZ_EXT_texture_filter_anisotropic');
+
       this.textures = {};
       const kinds = [
         'grass', 'swamp', 'asphalt', 'concrete', 'brick', 'rust', 'crate',
@@ -525,6 +596,20 @@ window.Engine3D = (function () {
         'gunmetal', 'roof', 'hazard', 'wire', 'white'
       ];
       for (const k of kinds) this.textures[k] = makeProceduralTexture(gl, k);
+
+      // Stream photorealistic PBR seamless textures seamlessly into WebGL handles
+      const realTexMap = {
+        grass:      'tex/swamp_ground.jpg',
+        concrete:   'tex/soviet_concrete.jpg',
+        rust:       'tex/rusted_metal.jpg',
+        brick:      'tex/brick_wall.jpg',
+        camo_armor: 'tex/camo_armor.jpg'
+      };
+      for (const k of Object.keys(realTexMap)) {
+        loadRealTextureIntoHandle(gl, this.textures[k], realTexMap[k], this.anisoExt);
+      }
+
+      this.worldBound = 252;
 
       const unit = buildUnitCubeData(1, 1, 1, 0, 0, 0.84);
       this.unitVBO = gl.createBuffer();
@@ -602,10 +687,11 @@ window.Engine3D = (function () {
       const spec = opts.spec || 0.12;
       const wind = opts.wind || 0;
       const doubleSided = !!opts.doubleSided;
-      const key = `${texName}|${tint.join(',')}|${spec}|${wind}|${doubleSided ? 1 : 0}`;
+      const polyOffset = !!opts.polyOffset;
+      const key = `${texName}|${tint.join(',')}|${spec}|${wind}|${doubleSided ? 1 : 0}|${polyOffset ? 1 : 0}`;
       if (!this._buckets[key]) {
         this._buckets[key] = {
-          texName, tint, emissive: opts.emissive || 0, spec, wind, doubleSided,
+          texName, tint, emissive: opts.emissive || 0, spec, wind, doubleSided, polyOffset,
           chunks: [{ verts: [], idx: [], vCount: 0 }]
         };
       }
@@ -658,27 +744,27 @@ window.Engine3D = (function () {
       ch.vCount += 24;
     }
 
-    // Add crossed swaying grass / reed tufts in one ultra-fast static batch
+    // Add 3-plane crossed swaying realistic grass / reed tufts in one fast static batch
     addGrassTuft(x, y, z, w, h) {
-      const bucket = this._getBucket('grass_tuft', { tint: [1, 1, 1, 1], spec: 0.05, wind: 0.14, doubleSided: true });
-      const ch = this._ensureChunk(bucket, 8);
+      const bucket = this._getBucket('grass_tuft', { tint: [1, 1, 1, 1], spec: 0.04, wind: 0.13, doubleSided: true });
+      const ch = this._ensureChunk(bucket, 12);
       const base = ch.vCount;
       const hw = w * 0.5;
       const ang = (x * 1.7 + z * 2.3) % 3.14;
-      const planes = [ang, ang + Math.PI * 0.5];
-      for (let p = 0; p < 2; p++) {
+      const shade = 0.84 + (((Math.sin(x * 0.37 + z * 0.29) + 1) * 0.5) * 0.26);
+      const planes = [ang, ang + Math.PI / 3, ang + (Math.PI * 2) / 3];
+      for (let p = 0; p < 3; p++) {
         const ca = Math.cos(planes[p]) * hw, sa = Math.sin(planes[p]) * hw;
         const b = base + p * 4;
-        // 4 verts: bottom-left, bottom-right, top-right, top-left (UV.y=0 at top so wind shader sways top!)
         ch.verts.push(
-          x - ca, y - 0.05, z - sa, 0, 1, 0, 0, 1, 0.55, 0.58, 0.52,
-          x + ca, y - 0.05, z + sa, 0, 1, 0, 1, 1, 0.55, 0.58, 0.52,
-          x + ca, y + h,    z + sa, 0, 1, 0, 1, 0, 1.0,  1.0,  0.96,
-          x - ca, y + h,    z - sa, 0, 1, 0, 0, 0, 1.0,  1.0,  0.96
+          x - ca, y - 0.06, z - sa, 0, 1, 0, 0, 1, 0.48 * shade, 0.52 * shade, 0.44 * shade,
+          x + ca, y - 0.06, z + sa, 0, 1, 0, 1, 1, 0.48 * shade, 0.52 * shade, 0.44 * shade,
+          x + ca, y + h,    z + sa, 0, 1, 0, 1, 0, 0.96 * shade, 0.98 * shade, 0.88 * shade,
+          x - ca, y + h,    z - sa, 0, 1, 0, 0, 0, 0.96 * shade, 0.98 * shade, 0.88 * shade
         );
         ch.idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
       }
-      ch.vCount += 8;
+      ch.vCount += 12;
     }
 
     // Build smooth Heightmap 3D Terrain Mesh with vertex biome tinting & slopes
@@ -730,7 +816,7 @@ window.Engine3D = (function () {
           this.staticBatches.push({
             tex: this.textures[b.texName] || this.textures.concrete,
             tint: b.tint, emissive: b.emissive, spec: b.spec, wind: b.wind,
-            doubleSided: b.doubleSided,
+            doubleSided: b.doubleSided, polyOffset: b.polyOffset,
             vbo, ibo, count: ch.idx.length,
             transparent: b.tint[3] < 0.99 || b.texName === 'wire' || b.texName === 'camo_net'
           });
@@ -763,8 +849,8 @@ window.Engine3D = (function () {
       gl.depthMask(true);
       gl.enable(gl.CULL_FACE);
 
-      // 2. Render 3D World with PBR-style Specular + FogExp2 + 8 Point Lights
-      M4.perspective(this.projMat, fovDeg * Math.PI / 180, this.aspect, 0.08, 280);
+      // 2. Render 3D World with higher depth precision (near=0.16 prevents Z-fighting!)
+      M4.perspective(this.projMat, fovDeg * Math.PI / 180, this.aspect, 0.16, 320);
       M4.cameraView(this.viewMat, camX, camY, camZ, yaw, pitch);
 
       gl.useProgram(this.prog);
@@ -802,9 +888,11 @@ window.Engine3D = (function () {
         gl.uniform1f(this.loc.uShininess, 24.0);
         gl.uniform1f(this.loc.uWindAmp, b.wind);
         if (b.doubleSided) gl.disable(gl.CULL_FACE);
+        if (b.polyOffset) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-1.5, -2.5); }
         if (b.transparent) gl.depthMask(false);
         gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_SHORT, 0);
         if (b.transparent) gl.depthMask(true);
+        if (b.polyOffset) gl.disable(gl.POLYGON_OFFSET_FILL);
         if (b.doubleSided) gl.enable(gl.CULL_FACE);
       }
 
@@ -917,8 +1005,9 @@ window.Engine3D = (function () {
         }
       }
 
-      nx = Math.max(-154, Math.min(154, nx));
-      nz = Math.max(-154, Math.min(154, nz));
+      const wb = this.worldBound || 252;
+      nx = Math.max(-wb, Math.min(wb, nx));
+      nz = Math.max(-wb, Math.min(wb, nz));
       const finalG = this.terrainHeightFn(nx, nz);
       if (ny < finalG) { ny = finalG; onGround = true; }
       return { x: nx, y: ny, z: nz, onGround };

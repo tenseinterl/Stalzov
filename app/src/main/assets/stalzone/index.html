@@ -31,15 +31,18 @@
   <!-- START / DEPLOY OVERLAY -->
   <div id="start-overlay">
     <div class="start-card">
-      <div class="start-badge">ЧЕРНОБЫЛЬСКАЯ ЗОНА // МРАЧНЫЕ БОЛОТА И СУМЕРКИ</div>
+      <div class="start-badge">ЧЕРНОБЫЛЬСКАЯ ЗОНА 520×520м // ВОЙНА ФРАКЦИЙ</div>
       <h1 class="start-title">STAL<span>ZONE</span></h1>
-      <p class="start-desc">Воксельный PvPvE extraction-шутер. Сумеречные болота, рельеф, костры, аномалии, детальное оружие в перчатках, нож, бартер и заточка +15.</p>
-      <div class="start-features">
-        <span>🌧 Сумерки и дождь</span>
-        <span>🔪 Нож + 6 стволов</span>
-        <span>📡 Радар 50м + пик</span>
-        <span>⚡ 5 аномалий + Выброс</span>
-        <span>⚒ Бартер и +15</span>
+      <p class="start-desc">Выберите группировку. Воксельный PvPvE extraction-шутер с реалистичными текстурами, большой Зоной, тайниками и слотовым инвентарём.</p>
+      <div class="faction-picker">
+        <button id="pick-stalker" class="faction-card active" data-faction="stalker">
+          <div class="fac-head"><span class="fac-dot green"></span><strong>СТАЛКЕРЫ</strong></div>
+          <div class="fac-sub">База «Бар» (Центр) • Союзники на Кордоне и НИИ</div>
+        </button>
+        <button id="pick-bandit" class="faction-card" data-faction="bandit">
+          <div class="fac-head"><span class="fac-dot orange"></span><strong>БАНДИТЫ</strong></div>
+          <div class="fac-sub">База «Депо» (Болота) • Свои на Свалке и Заставах</div>
+        </button>
       </div>
       <div class="start-actions">
         <button id="btn-deploy" class="btn-primary">ВОЙТИ В ЗОНУ</button>
@@ -60,7 +63,10 @@
         </div>
         <div id="radar-zone-tag">БАР</div>
       </div>
+      <div id="faction-badge" class="status-pill faction-stalker">СТАЛКЕРЫ</div>
+      <div id="online-badge" class="status-pill online-pill">🌐 ОНЛАЙН: 1 • С1</div>
       <div id="safe-badge" class="status-pill safe">СЕЙВ-ЗОНА</div>
+      <div id="fire-badge" class="status-pill fire hidden">🔥 У КОСТРА</div>
       <div id="roof-badge" class="status-pill hidden">УКРЫТИЕ</div>
       <div id="emission-banner" class="hidden">
         <div class="em-title">⚠ ВЫБРОС</div>
@@ -197,6 +203,43 @@
         <button id="tbtn-knife" class="t-util">🔪</button>
         <button id="tbtn-bolt" class="t-util">🔩</button>
         <button id="tbtn-det" class="t-util">📡</button>
+        <button id="tbtn-light" class="t-util">🔦</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: MINECRAFT-STYLE DUAL-GRID LOOT (CORPSE BAG / WORLD STASH <-> BACKPACK) -->
+  <div id="modal-loot" class="modal hidden">
+    <div class="modal-window loot-window">
+      <div class="modal-header">
+        <div>
+          <h2 id="loot-modal-title">ОБЫСК СУМКИ</h2>
+          <span class="modal-sub">Нажмите на ячейку чтобы взять/переложить предмет (как в Minecraft) • Двойной тап — быстро перенести</span>
+        </div>
+        <div class="modal-header-right">
+          <button id="btn-loot-take-all" class="btn-small-good">ВЗЯТЬ ВСЁ</button>
+          <button class="btn-close-modal" data-close="modal-loot">✕</button>
+        </div>
+      </div>
+      <div id="loot-hand-bar" class="mc-hand-bar">
+        <span id="loot-hand-text">В руке пусто — нажмите на любой слот, чтобы перенести предмет или поменять местами</span>
+        <button id="btn-loot-drop-hand" class="btn-tiny hidden">ОТМЕНА</button>
+      </div>
+      <div class="loot-dual-body">
+        <div class="loot-pane">
+          <div class="col-head-row">
+            <h3 id="loot-src-heading">СУМКА / ТАЙНИК (12 СЛОТОВ)</h3>
+            <span id="loot-src-count" class="muted">0 предм.</span>
+          </div>
+          <div id="loot-source-grid" class="mc-grid mc-grid-loot"></div>
+        </div>
+        <div class="loot-pane">
+          <div class="col-head-row">
+            <h3>ВАШ РЮКЗАК (24 СЛОТА)</h3>
+            <span id="loot-bag-weight" class="muted">0 / 45 кг</span>
+          </div>
+          <div id="loot-backpack-grid" class="mc-grid mc-grid-bag"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -227,10 +270,14 @@
         </div>
         <div class="inv-col bag-col">
           <div class="col-head-row">
-            <h3>РЮКЗАК (ВЫПАДАЕТ В РЕЙДЕ)</h3>
+            <h3>РЮКЗАК — 24 СЛОТА (ТАП ЧТОБЫ ПЕРЕНЕСТИ)</h3>
             <span id="bag-count-label" class="muted">0 предм.</span>
           </div>
-          <div id="backpack-grid" class="item-grid"></div>
+          <div id="inv-hand-bar" class="mc-hand-bar hidden">
+            <span id="inv-hand-text"></span>
+            <button id="btn-inv-cancel-hand" class="btn-tiny">ОТМЕНА</button>
+          </div>
+          <div id="backpack-grid" class="mc-grid mc-grid-inv"></div>
         </div>
         <div class="inv-col info-col">
           <h3>ИНФОРМАЦИЯ</h3>
@@ -249,6 +296,7 @@
         <h2>ПДА «ЗОНОВИК-М»</h2>
         <div class="pda-tabs">
           <button class="pda-tab active" data-pda="map">КАРТА ЗОНЫ</button>
+          <button class="pda-tab" data-pda="radio">ОНЛАЙН / РАЦИЯ</button>
           <button class="pda-tab" data-pda="quests">ЗАДАНИЯ</button>
           <button class="pda-tab" data-pda="stats">СТАТИСТИКА</button>
         </div>
@@ -259,11 +307,11 @@
           <canvas id="pda-map-canvas" width="480" height="480"></canvas>
         </div>
         <div class="pda-legend">
-          <h3>ЛЕГЕНДА СЕКТОРА</h3>
-          <div class="leg-item"><span class="dot green"></span> База «Бар» (Сейв-зона, укрытие)</div>
-          <div class="leg-item"><span class="dot yellow"></span> Юг / Мрачные болота (I тир)</div>
-          <div class="leg-item"><span class="dot red"></span> Север / Промзона и НИИ (II–III тир)</div>
-          <div class="leg-item"><span class="dot orange"></span> Логова мутантов</div>
+          <h3>ЛЕГЕНДА ЗОНЫ (520×520м)</h3>
+          <div class="leg-item"><span class="dot green"></span> База Сталкеров «Бар» (Центр)</div>
+          <div class="leg-item"><span class="dot orange"></span> База Бандитов «Депо» (Юго-Запад)</div>
+          <div class="leg-item"><span class="dot yellow"></span> Тайники и ящики на карте (12 шт.)</div>
+          <div class="leg-item"><span class="dot red"></span> Север: НИИ, Промзона и РЛС «Дуга»</div>
           <div class="leg-item"><span class="dot cyan"></span> Протоаномалии / Сигналы САК</div>
           <div class="leg-item"><span class="dot purple"></span> Ваша Сумка с хабаром</div>
           <hr class="sep" />
@@ -272,6 +320,26 @@
             <button id="btn-trigger-emission" class="btn-small-warn">ТЕСТ ВЫБРОСА</button>
           </div>
           <div id="pda-coords" class="muted mt-8">Координаты: X 0 / Z 0</div>
+        </div>
+      </div>
+      <div id="pda-tab-radio" class="pda-body hidden">
+        <div class="radio-layout">
+          <div class="radio-players-col">
+            <div class="sector-switch-row">
+              <button id="btn-sector-1" class="btn-small active">СЕКТОР 1</button>
+              <button id="btn-sector-2" class="btn-small">СЕКТОР 2</button>
+            </div>
+            <div id="online-roster-count" class="muted" style="font-size:11px;margin:4px 0 6px;">Игроков в секторе: 1</div>
+            <div id="online-roster-list" class="radio-roster-list"></div>
+          </div>
+          <div class="radio-chat-col">
+            <div class="radio-chat-title">📻 ОБЩАЯ РАЦИЯ СЕКТОРА (ОБЛАЧНЫЙ ОНЛАЙН)</div>
+            <div id="radio-chat-feed" class="radio-chat-feed"></div>
+            <div class="radio-chat-form">
+              <input id="radio-chat-input" type="text" maxlength="140" placeholder="Передать сообщение в эфир..." />
+              <button id="btn-radio-send" class="btn-primary">ОТПРАВИТЬ</button>
+            </div>
+          </div>
         </div>
       </div>
       <div id="pda-tab-quests" class="pda-body hidden">
@@ -321,8 +389,10 @@
           <input id="set-touch" type="checkbox" checked />
         </label>
         <div class="settings-actions">
-          <button id="btn-save-now" class="btn-primary">СОХРАНИТЬ СЕЙЧАС</button>
-          <button id="btn-respawn-bar" class="btn-ghost">ВЕРНУТЬСЯ В БАР</button>
+          <button id="btn-save-now" class="btn-primary">СОХРАНИТЬ В ОБЛАКО</button>
+          <button id="btn-switch-faction" class="btn-ghost">СМЕНИТЬ ФРАКЦИЮ</button>
+          <button id="btn-respawn-bar" class="btn-ghost">НА СВОЮ БАЗУ</button>
+          <button id="btn-sign-out" class="btn-ghost">СМЕНИТЬ АККАУНТ GOOGLE</button>
           <button id="btn-exit-game" class="btn-danger">ВЫЙТИ ИЗ ИГРЫ</button>
         </div>
       </div>

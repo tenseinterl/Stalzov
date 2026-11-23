@@ -1,10 +1,11 @@
-// STALZONE AI Entities, Detailed Blocky-Armored Stalkers/Mutants, Heightmap Physics, Campfire Flames & Emission
+// STALZONE AI Entities: Faction Warfare, Rebalanced Bots, High-Detail 3D Models, World Stashes, Flashlight & Multiplayer Hook
 window.EntityManager = (function () {
   class Manager {
     constructor(world, engine) {
       this.world = world;
       this.engine = engine;
       this.enemies = [];
+      this.remotePlayers = []; // Populated by online multiplayer bridge
       this.lootBags = [];
       this.projectiles = [];
       this.tracers = [];
@@ -14,7 +15,7 @@ window.EntityManager = (function () {
 
       this.emission = {
         phase: 'calm',
-        timer: 320,
+        timer: 340,
         intensity: 0,
         lightningFlash: 0,
         thunderTimer: 2
@@ -43,33 +44,66 @@ window.EntityManager = (function () {
         this._spawnEnemy('bloodsucker', spot.x, spot.z, spot.id, spot.tier);
         this._spawnEnemy('dog', spot.x + 5, spot.z - 4, spot.id, spot.tier);
       } else if (spot.kind === 'bandits') {
-        const count = spot.tier >= 3 ? 3 : 2;
+        const count = spot.tier >= 2 ? 3 : 2;
         for (let i = 0; i < count; i++) {
           this._spawnEnemy('bandit', spot.x + (Math.random() - 0.5) * 12, spot.z + (Math.random() - 0.5) * 12, spot.id, spot.tier);
+        }
+      } else if (spot.kind === 'stalkers') {
+        const count = spot.tier >= 2 ? 3 : 2;
+        for (let i = 0; i < count; i++) {
+          this._spawnEnemy('stalker', spot.x + (Math.random() - 0.5) * 12, spot.z + (Math.random() - 0.5) * 12, spot.id, spot.tier);
+        }
+      } else if (spot.kind === 'mercs') {
+        const count = 3;
+        for (let i = 0; i < count; i++) {
+          this._spawnEnemy('merc', spot.x + (Math.random() - 0.5) * 14, spot.z + (Math.random() - 0.5) * 14, spot.id, spot.tier);
         }
       }
     }
 
     _spawnEnemy(kind, x, z, spotId, tier = 1) {
+      // Fairly rebalanced bot stats (responsive, fun combat without unfair instant laser deaths)
       const cfg = {
-        dog: { name: 'Слепой пёс', isHuman: false, hp: 65, speed: 6.8, dmg: 13, radius: 0.48, height: 0.85, range: 1.9, armor: 5 },
-        boar: { name: 'Кабан-мутант', isHuman: false, hp: 140, speed: 5.6, dmg: 24, radius: 0.72, height: 1.25, range: 2.4, armor: 18 },
-        bloodsucker: { name: 'Кровосос', isHuman: false, hp: 230, speed: 6.4, dmg: 30, radius: 0.52, height: 1.95, range: 2.4, armor: 22 },
+        dog: {
+          name: 'Слепой пёс', faction: 'mutant', isHuman: false,
+          hp: 42, speed: 5.8, dmg: 7, radius: 0.48, height: 0.85, range: 1.9, armor: 3
+        },
+        boar: {
+          name: 'Кабан-мутант', faction: 'mutant', isHuman: false,
+          hp: 85, speed: 4.9, dmg: 14, radius: 0.72, height: 1.25, range: 2.3, armor: 10
+        },
+        bloodsucker: {
+          name: 'Кровосос', faction: 'mutant', isHuman: false,
+          hp: 135, speed: 5.7, dmg: 18, radius: 0.52, height: 1.95, range: 2.3, armor: 14
+        },
         bandit: {
-          name: tier >= 3 ? 'Наёмник Севера' : (tier === 2 ? 'Опытный Бандит' : 'Бандит-мародёр'),
-          isHuman: true,
-          hp: tier >= 3 ? 165 : (tier === 2 ? 120 : 95),
-          speed: 3.9,
-          dmg: tier >= 3 ? 16 : (tier === 2 ? 12 : 9),
-          radius: 0.44, height: 1.88, range: 35,
-          armor: tier >= 3 ? 42 : (tier === 2 ? 26 : 14)
+          name: tier >= 2 ? 'Матёрый Бандит' : 'Бандит-мародёр',
+          faction: 'bandit', isHuman: true,
+          hp: tier >= 2 ? 78 : 58, speed: 3.6,
+          dmg: tier >= 2 ? 7.5 : 5.0,
+          radius: 0.44, height: 1.88, range: 32,
+          armor: tier >= 2 ? 15 : 8
+        },
+        stalker: {
+          name: tier >= 2 ? 'Ветеран-Сталкер' : 'Сталкер-одиночка',
+          faction: 'stalker', isHuman: true,
+          hp: tier >= 2 ? 78 : 58, speed: 3.6,
+          dmg: tier >= 2 ? 7.5 : 5.0,
+          radius: 0.44, height: 1.88, range: 32,
+          armor: tier >= 2 ? 15 : 8
+        },
+        merc: {
+          name: 'Наёмник Севера',
+          faction: 'merc', isHuman: true,
+          hp: 105, speed: 3.8, dmg: 10.5,
+          radius: 0.44, height: 1.88, range: 36, armor: 24
         }
       }[kind];
 
       const gy = this.world.getHeight(x, z);
       this.enemies.push({
         id: 'en_' + Math.random().toString(36).slice(2, 9),
-        kind, spotId, tier,
+        kind, faction: cfg.faction, spotId, tier,
         name: cfg.name, isHuman: cfg.isHuman,
         x, y: gy, z,
         homeX: x, homeZ: z,
@@ -78,7 +112,7 @@ window.EntityManager = (function () {
         speed: cfg.speed, dmg: cfg.dmg,
         radius: cfg.radius, height: cfg.height,
         range: cfg.range, armor: cfg.armor,
-        atkCd: 0, burstLeft: 0, burstPause: 0,
+        atkCd: 0, reactDelay: 0.65, burstLeft: 0, burstPause: 0,
         strafeDir: Math.random() > 0.5 ? 1 : -1,
         strafeTimer: 1.5, chargeTimer: 0, bleedTimer: 0,
         cloakAlpha: 1.0, animPhase: Math.random() * 6.28,
@@ -86,13 +120,25 @@ window.EntityManager = (function () {
       });
     }
 
+    isHostileToPlayer(en, playerFaction) {
+      if (en.faction === 'mutant' || en.faction === 'merc') return true;
+      return en.faction !== playerFaction;
+    }
+
+    areEnemiesHostile(a, b) {
+      if (a.faction === b.faction) return false;
+      return true;
+    }
+
     spawnLootBag(x, z, title, items, isPlayerBag = false) {
       if (!items || items.length === 0) return;
+      const slotted = items.map(i => ({ id: i.id, count: i.count, slot: i.slot }));
+      window.GameData.ensureSlots(slotted, 12);
       this.lootBags.push({
         id: 'bag_' + Math.random().toString(36).slice(2, 9),
         x, y: this.world.getHeight(x, z), z,
         title,
-        items: items.map(i => ({ id: i.id, count: i.count })),
+        items: slotted,
         isPlayerBag
       });
     }
@@ -135,19 +181,19 @@ window.EntityManager = (function () {
         this.emission.phase = 'warning';
         this.emission.timer = 18;
         window.SoundEngine.setEmissionSiren(true);
-        game.toast('⚠ ВНИМАНИЕ! НАЧИНАЕТСЯ ВЫБРОС! Ищите крышу или Бар!', 'bad');
+        game.toast('⚠ ВНИМАНИЕ! НАЧИНАЕТСЯ ВЫБРОС! Ищите крышу или базу!', 'bad');
       }
     }
 
     startSignalScan(px, pz, game) {
       if (this.signalScan.active) return;
       let tx = px, tz = pz;
-      for (let tries = 0; tries < 20; tries++) {
+      for (let tries = 0; tries < 25; tries++) {
         const ang = Math.random() * Math.PI * 2;
-        const d = 28 + Math.random() * 38;
-        tx = Math.max(-135, Math.min(135, px + Math.cos(ang) * d));
-        tz = Math.max(-135, Math.min(135, pz + Math.sin(ang) * d));
-        if (!this.world.isSafeZone(tx, tz)) break;
+        const d = 32 + Math.random() * 48;
+        tx = Math.max(-230, Math.min(230, px + Math.cos(ang) * d));
+        tz = Math.max(-230, Math.min(230, pz + Math.sin(ang) * d));
+        if (!this.world.isAnySafeZone(tx, tz)) break;
       }
       this.signalScan = { active: true, progress: 0, targetX: tx, targetZ: tz };
       this.signalStash = null;
@@ -178,15 +224,15 @@ window.EntityManager = (function () {
         if (!proto.active) continue;
         const d = Math.hypot(player.x - proto.x, player.z - proto.z);
         if (d < 22) {
-          proto.progress += dt * 4.8;
+          proto.progress += dt * 5.2;
           proto.waveTimer -= dt;
           const py = this.world.getHeight(proto.x, proto.z);
-          if (Math.random() < 0.38) {
+          if (Math.random() < 0.35) {
             this.spawnParticles(proto.x + (Math.random() - 0.5) * 4, py + 1.8, proto.z + (Math.random() - 0.5) * 4, 2, [0.3, 0.9, 1, 1], 4, 0.4, 0.16, 0);
           }
           if (proto.waveTimer <= 0) {
-            proto.waveTimer = 6.2;
-            const kind = proto.tier >= 3 && Math.random() > 0.55 ? 'bloodsucker' : (Math.random() > 0.45 ? 'boar' : 'dog');
+            proto.waveTimer = 7.2;
+            const kind = proto.tier >= 3 && Math.random() > 0.6 ? 'bloodsucker' : (Math.random() > 0.5 ? 'boar' : 'dog');
             const ang = Math.random() * 6.28;
             this._spawnEnemy(kind, proto.x + Math.cos(ang) * 14, proto.z + Math.sin(ang) * 14, null, proto.tier);
             window.SoundEngine.playAnomaly('electro');
@@ -201,7 +247,7 @@ window.EntityManager = (function () {
             this.spawnLootBag(proto.x, proto.z, 'Лут Протоаномалии', reward, false);
             game.addMoney(proto.tier >= 3 ? 4500 : 2200);
             game.progressQuest('clear_proto', 1);
-            game.toast('⚡ Протоаномалия заряжена! Заберите ценный лут!', 'good');
+            game.toast('⚡ Протоаномалия заряжена! Обыщите сумку [F]!', 'good');
             window.SoundEngine.playExplosion();
           }
         }
@@ -211,17 +257,21 @@ window.EntityManager = (function () {
         const d = Math.hypot(player.x - this.signalScan.targetX, player.z - this.signalScan.targetZ);
         if (d < 10) {
           this.signalScan.active = false;
+          const items = [
+            { id: 'res_radio', count: 3 },
+            { id: 'res_data', count: this.signalScan.targetZ < -20 ? 2 : 1 },
+            { id: 'ammo_ap', count: 30 },
+            { id: 'tools', count: 1 }
+          ];
+          window.GameData.ensureSlots(items, 12);
           this.signalStash = {
             x: this.signalScan.targetX,
             y: this.world.getHeight(this.signalScan.targetX, this.signalScan.targetZ),
             z: this.signalScan.targetZ,
-            items: [
-              { id: 'res_radio', count: 3 },
-              { id: 'res_data', count: this.signalScan.targetZ < -20 ? 2 : 1 },
-              { id: 'ammo_ap', count: 30 },
-              { id: 'tools', count: 1 }
-            ],
-            money: 1800
+            title: 'Тайник сигнала САК',
+            items,
+            money: 1800,
+            moneyClaimed: false
           };
           game.toast('📡 Тайник сигнала обнаружен рядом! Обыщите [F].', 'good');
           window.SoundEngine.playRadarBeep();
@@ -231,6 +281,13 @@ window.EntityManager = (function () {
       this._updateAnomalies(dt, player, game);
       this._updateProjectiles(dt, player, game);
       this._updateEnemies(dt, player, game);
+
+      // Clean empty non-player loot bags
+      for (let i = this.lootBags.length - 1; i >= 0; i--) {
+        if (!this.lootBags[i].items || this.lootBags[i].items.length === 0) {
+          this.lootBags.splice(i, 1);
+        }
+      }
 
       for (let i = this.tracers.length - 1; i >= 0; i--) {
         this.tracers[i].life -= dt;
@@ -246,14 +303,12 @@ window.EntityManager = (function () {
         if (p.y < gy) { p.y = gy; p.vy *= -0.35; p.vx *= 0.6; p.vz *= 0.6; }
       }
 
-      // Live campfire rising embers & flame sparks!
       for (const cf of this.world.campfires) {
-        if (Math.hypot(player.x - cf.x, player.z - cf.z) < 38 && Math.random() < 0.55) {
+        if (Math.hypot(player.x - cf.x, player.z - cf.z) < 42 && Math.random() < 0.55) {
           this.spawnParticles(cf.x + (Math.random() - 0.5) * 0.5, cf.y + 0.45, cf.z + (Math.random() - 0.5) * 0.5, 1, [1.0, 0.55 + Math.random() * 0.35, 0.12, 0.95], 1.4, 0.85, 0.09, -2.2);
         }
       }
 
-      // Twilight rain streaks!
       if (this.world.weather === 'rain' || this.emission.phase === 'active') {
         for (let i = 0; i < 6; i++) {
           this.particles.push({
@@ -276,7 +331,7 @@ window.EntityManager = (function () {
       if (E.phase === 'calm') {
         E.intensity = Math.max(0, E.intensity - dt * 0.5);
         if (E.timer <= 0) {
-          E.phase = 'warning'; E.timer = 22;
+          E.phase = 'warning'; E.timer = 24;
           window.SoundEngine.setEmissionSiren(true);
           game.toast('⚠ СИРЕНА БАЗЫ! ПРИБЛИЖАЕТСЯ ВЫБРОС — УКРОЙТЕСЬ ПОД КРЫШЕЙ!', 'bad');
         }
@@ -299,20 +354,21 @@ window.EntityManager = (function () {
           window.SoundEngine.playThunder();
         }
         player.shake = Math.max(player.shake, 0.015);
-        const sheltered = this.world.isSafeZone(player.x, player.z) ||
+        const sheltered = this.world.isAnySafeZone(player.x, player.z) ||
           this.engine.hasRoofCover(player.x, player.y + 1.5, player.z);
         if (!sheltered && player.hp > 0) {
-          player.contam.psy = Math.min(100, player.contam.psy + dt * 16);
-          player.contam.therm = Math.min(100, player.contam.therm + dt * 14);
-          game.damagePlayer(dt * 14, 'Выброс (открытое пространство)', true);
+          player.contam.psy = Math.min(100, player.contam.psy + dt * 15);
+          player.contam.therm = Math.min(100, player.contam.therm + dt * 13);
+          game.damagePlayer(dt * 12, 'Выброс (открытое пространство)', true);
         }
         if (E.timer <= 0) {
-          E.phase = 'calm'; E.timer = 330;
+          E.phase = 'calm'; E.timer = 350;
           window.SoundEngine.setEmissionSiren(false);
           this.world.respawnAnomaliesAndArtifacts();
+          this.world.refillWorldStashes();
           game.profile.stats.emissionsSurvived++;
           game.save();
-          game.toast('☀ Выброс закончился! Аномалии обновлены, появились свежие артефакты!', 'good');
+          game.toast('☀ Выброс прошёл! Аномалии, артефакты и тайники обновлены!', 'good');
         }
       }
     }
@@ -326,7 +382,7 @@ window.EntityManager = (function () {
         const dPlayer = Math.hypot(player.x - a.x, player.z - a.z);
         const ay = this.world.getHeight(a.x, a.z);
 
-        if (dPlayer < 40 && Math.random() < (discharged ? 0.02 : 0.2)) {
+        if (dPlayer < 42 && Math.random() < (discharged ? 0.02 : 0.2)) {
           const pCol = a.type === 'electro' ? [0.4, 0.9, 1.0, 0.95]
             : a.type === 'vortex' ? [0.75, 0.72, 0.62, 0.6]
             : a.type === 'springboard' ? [0.85, 0.95, 1.0, 0.5]
@@ -343,36 +399,36 @@ window.EntityManager = (function () {
 
         if (dPlayer < a.radius) {
           if (a.type === 'vortex') {
-            const pull = (1 - dPlayer / a.radius) * 11 * dt;
+            const pull = (1 - dPlayer / a.radius) * 10 * dt;
             const nx = (a.x - player.x) / Math.max(0.2, dPlayer);
             const nz = (a.z - player.z) / Math.max(0.2, dPlayer);
             player.x += nx * pull; player.z += nz * pull;
             if (dPlayer < 1.35 && a.cooldown <= 0) {
-              a.cooldown = 2.2;
+              a.cooldown = 2.4;
               window.SoundEngine.playAnomaly('vortex');
               this.spawnParticles(a.x, ay + 1.0, a.z, 18, [0.9, 0.25, 0.2, 0.9], 7, 0.6, 0.22, 4);
-              game.damagePlayer(38, 'Аномалия «Воронка»', true);
+              game.damagePlayer(32, 'Аномалия «Воронка»', true);
             }
           } else if (a.type === 'electro' && a.cooldown <= 0) {
             a.cooldown = 2.6;
             window.SoundEngine.playAnomaly('electro');
             this.spawnParticles(a.x, ay + 1.2, a.z, 22, [0.5, 0.92, 1.0, 1], 8, 0.45, 0.18, 1);
-            game.damagePlayer(34, 'Аномалия «Электра»', true);
+            game.damagePlayer(28, 'Аномалия «Электра»', true);
           } else if (a.type === 'springboard' && a.cooldown <= 0) {
             a.cooldown = 2.4;
             window.SoundEngine.playAnomaly('springboard');
             player.vy = 13.5;
             this.spawnParticles(a.x, ay + 0.6, a.z, 16, [0.9, 0.96, 1.0, 0.8], 6, 0.5, 0.2, 1);
-            game.damagePlayer(12, 'Аномалия «Батут»', true);
+            game.damagePlayer(10, 'Аномалия «Батут»', true);
           } else if (a.type === 'burner' && a.cooldown <= 0) {
-            a.cooldown = 1.6;
+            a.cooldown = 1.7;
             window.SoundEngine.playAnomaly('burner');
             this.spawnParticles(a.x, ay + 1.5, a.z, 26, [1.0, 0.48, 0.08, 1], 7, 0.85, 0.28, -6);
-            player.contam.therm = Math.min(100, player.contam.therm + 34);
-            game.damagePlayer(26, 'Аномалия «Жарка»', true);
+            player.contam.therm = Math.min(100, player.contam.therm + 30);
+            game.damagePlayer(22, 'Аномалия «Жарка»', true);
           } else if (a.type === 'acid') {
-            player.contam.bio = Math.min(100, player.contam.bio + dt * 28);
-            game.damagePlayer(dt * 16, 'Аномалия «Кисель»', true);
+            player.contam.bio = Math.min(100, player.contam.bio + dt * 24);
+            game.damagePlayer(dt * 13, 'Аномалия «Кисель»', true);
             if (a.cooldown <= 0) { a.cooldown = 0.8; window.SoundEngine.playAnomaly('acid'); }
           }
         }
@@ -414,11 +470,11 @@ window.EntityManager = (function () {
               const ay = this.world.getHeight(a.x, a.z);
               window.SoundEngine.playAnomaly(a.type);
               if (a.type === 'electro') {
-                a.dischargedUntil = now + 3.2;
+                a.dischargedUntil = now + 3.4;
                 this.spawnParticles(a.x, ay + 1.1, a.z, 18, [0.45, 0.9, 1.0, 1], 7, 0.45, 0.18, 1);
                 game.toast('⚡ «Электра» разряжена болтом (3 сек)!', 'good');
               } else {
-                a.dischargedUntil = now + 1.8;
+                a.dischargedUntil = now + 2.0;
                 this.spawnParticles(a.x, ay + 0.9, a.z, 14, [1.0, 0.6, 0.25, 0.9], 5, 0.45, 0.16, 2);
               }
               p.life = 0;
@@ -442,8 +498,8 @@ window.EntityManager = (function () {
       const dp = Math.hypot(player.x - gx, player.z - gz);
       if (dp < 8.5) {
         player.shake = Math.max(player.shake, 0.055 * (1 - dp / 8.5));
-        if (!this.world.isSafeZone(player.x, player.z)) {
-          game.damagePlayer((1 - dp / 8.5) * 65, 'Осколки РГД-5', false);
+        if (!this.world.isSafeZone(player.x, player.z, game.profile.faction)) {
+          game.damagePlayer((1 - dp / 8.5) * 60, 'Осколки РГД-5', false);
         }
       }
       for (const en of this.enemies) {
@@ -458,7 +514,8 @@ window.EntityManager = (function () {
     }
 
     _updateEnemies(dt, player, game) {
-      const playerSafe = this.world.isSafeZone(player.x, player.z);
+      const pFaction = game.profile.faction || 'stalker';
+      const playerSafe = this.world.isSafeZone(player.x, player.z, pFaction);
 
       for (let i = this.enemies.length - 1; i >= 0; i--) {
         const en = this.enemies[i];
@@ -472,45 +529,84 @@ window.EntityManager = (function () {
           if (en.hp <= 0) { this.onEnemyKilled(en, false, game, 'Кровотечение'); continue; }
         }
 
-        const dx = player.x - en.x, dz = player.z - en.z;
-        const dist = Math.hypot(dx, dz);
-        const aggroDist = en.isHuman ? 44 : 30;
-        const canAggro = !playerSafe && dist < aggroDist && player.hp > 0;
+        const dxP = player.x - en.x, dzP = player.z - en.z;
+        const distP = Math.hypot(dxP, dzP);
+        const aggroDist = en.isHuman ? 34 : 23;
+        const hostileToPlayer = this.isHostileToPlayer(en, pFaction);
 
-        if (canAggro) {
+        // Pick target: either player (if hostile) OR closest rival faction/mutant NPC!
+        let target = null;
+        let targetIsPlayer = false;
+        let bestDist = aggroDist;
+
+        if (hostileToPlayer && !playerSafe && distP < bestDist && player.hp > 0) {
+          target = player;
+          targetIsPlayer = true;
+          bestDist = distP;
+        }
+
+        // Check nearby rival faction NPCs / mutants for live Zone faction wars!
+        for (const other of this.enemies) {
+          if (other === en || other.hp <= 0 || other._dead) continue;
+          if (!this.areEnemiesHostile(en, other)) continue;
+          const dO = Math.hypot(other.x - en.x, other.z - en.z);
+          if (dO < bestDist && dO < 28) {
+            target = other;
+            targetIsPlayer = false;
+            bestDist = dO;
+          }
+        }
+
+        if (target) {
+          const dx = target.x - en.x, dz = target.z - en.z;
+          const dist = Math.hypot(dx, dz);
           en.yaw = Math.atan2(dx, dz);
           en.animPhase += dt * (en.speed * 1.8);
 
           if (en.isHuman) {
             en.strafeTimer -= dt;
-            if (en.strafeTimer <= 0) { en.strafeTimer = 1.2 + Math.random() * 1.4; en.strafeDir = -en.strafeDir; }
+            if (en.strafeTimer <= 0) { en.strafeTimer = 1.3 + Math.random() * 1.5; en.strafeDir = -en.strafeDir; }
             let mx = 0, mz = 0;
             const fx = dx / Math.max(0.01, dist), fz = dz / Math.max(0.01, dist);
-            if (dist > 22) { mx += fx; mz += fz; }
+            if (dist > 20) { mx += fx; mz += fz; }
             else if (dist < 10) { mx -= fx; mz -= fz; }
-            mx += -fz * en.strafeDir * 0.75; mz += fx * en.strafeDir * 0.75;
+            mx += -fz * en.strafeDir * 0.7; mz += fx * en.strafeDir * 0.7;
             this._moveEnemy(en, mx * en.speed * dt, mz * en.speed * dt);
 
             if (dist < en.range) {
-              if (en.burstPause > 0) en.burstPause -= dt;
-              else if (en.atkCd <= 0) {
+              if (en.reactDelay > 0) {
+                en.reactDelay -= dt;
+              } else if (en.burstPause > 0) {
+                en.burstPause -= dt;
+              } else if (en.atkCd <= 0) {
                 const ey = en.y + 1.5;
-                const py = player.y + 1.4;
-                const d3 = Math.hypot(dx, py - ey, dz);
-                const los = this.engine.raycastWorld(en.x, ey, en.z, dx / d3, (py - ey) / d3, dz / d3, d3);
+                const ty = target.y + (targetIsPlayer ? 1.4 : target.height * 0.65);
+                const d3 = Math.hypot(dx, ty - ey, dz);
+                const los = this.engine.raycastWorld(en.x, ey, en.z, dx / d3, (ty - ey) / d3, dz / d3, d3);
                 if (los >= d3 - 1.2) {
-                  en.atkCd = 0.16;
-                  if (en.burstLeft <= 0) en.burstLeft = 3 + Math.floor(Math.random() * 3);
+                  en.atkCd = 0.28;
+                  if (en.burstLeft <= 0) en.burstLeft = 2 + Math.floor(Math.random() * 2);
                   en.burstLeft--;
-                  if (en.burstLeft <= 0) en.burstPause = 1.1 + Math.random() * 0.9;
+                  if (en.burstLeft <= 0) en.burstPause = 1.65 + Math.random() * 0.85;
 
-                  window.SoundEngine.playEnemyShot(dist);
-                  const spread = 0.08 + dist * 0.002;
-                  const hit = Math.random() < Math.max(0.18, 0.55 - dist * 0.01);
-                  const tx = player.x + (hit ? 0 : (Math.random() - 0.5) * spread * dist);
-                  const tz = player.z + (hit ? 0 : (Math.random() - 0.5) * spread * dist);
-                  this.addTracer(en.x, ey, en.z, tx, player.y + 1.35, tz, [1.0, 0.82, 0.32, 0.92]);
-                  if (hit) game.damagePlayer(en.dmg, en.name, false);
+                  if (distP < 55) window.SoundEngine.playEnemyShot(distP);
+                  const spread = 0.14 + dist * 0.003;
+                  const hitChance = Math.max(0.12, 0.36 - dist * 0.008);
+                  const hit = Math.random() < hitChance;
+                  const tx = target.x + (hit ? 0 : (Math.random() - 0.5) * spread * dist);
+                  const tz = target.z + (hit ? 0 : (Math.random() - 0.5) * spread * dist);
+                  const trCol = en.faction === 'stalker' ? [0.65, 1.0, 0.55, 0.9] : [1.0, 0.78, 0.30, 0.9];
+                  this.addTracer(en.x, ey, en.z, tx, ty, tz, trCol);
+
+                  if (hit) {
+                    if (targetIsPlayer) {
+                      game.damagePlayer(en.dmg, en.name, false);
+                    } else {
+                      target.hp -= en.dmg * 1.1;
+                      target.hitFlash = 0.16;
+                      if (target.hp <= 0) this.onEnemyKilled(target, false, game, en.name);
+                    }
+                  }
                 }
               }
             }
@@ -518,63 +614,50 @@ window.EntityManager = (function () {
             const fx = dx / Math.max(0.01, dist), fz = dz / Math.max(0.01, dist);
             let moveSpeed = en.speed;
             if (en.kind === 'bloodsucker') {
-              en.cloakAlpha = (dist > 4.0 && en.hitFlash <= 0) ? 0.22 : 0.95;
+              en.cloakAlpha = (dist > 4.2 && en.hitFlash <= 0) ? 0.26 : 0.95;
             } else if (en.kind === 'boar') {
               en.chargeTimer += dt;
-              if (dist < 14 && dist > 3 && Math.sin(en.chargeTimer * 1.4) > 0.35) {
-                moveSpeed *= 1.55;
-                if (Math.random() < 0.3) this.spawnParticles(en.x, en.y + 0.2, en.z, 1, [0.45, 0.4, 0.32, 0.6], 2, 0.4, 0.2, 2);
+              if (dist < 13 && dist > 3 && Math.sin(en.chargeTimer * 1.4) > 0.45) {
+                moveSpeed *= 1.42;
+                if (Math.random() < 0.28) this.spawnParticles(en.x, en.y + 0.2, en.z, 1, [0.45, 0.4, 0.32, 0.6], 2, 0.4, 0.2, 2);
               }
             } else if (en.kind === 'dog') {
-              const strafe = dist < 6 ? Math.sin(en.animPhase * 0.4) * 0.5 : 0;
+              const strafe = dist < 6 ? Math.sin(en.animPhase * 0.4) * 0.45 : 0;
               this._moveEnemy(en, (fx - fz * strafe) * moveSpeed * dt, (fz + fx * strafe) * moveSpeed * dt);
               moveSpeed = 0;
             }
             if (moveSpeed > 0 && dist > en.range * 0.85) this._moveEnemy(en, fx * moveSpeed * dt, fz * moveSpeed * dt);
             if (dist <= en.range && en.atkCd <= 0) {
-              en.atkCd = en.kind === 'dog' ? 1.0 : (en.kind === 'boar' ? 1.5 : 1.25);
-              window.SoundEngine.playMutantGrowl();
-              game.damagePlayer(en.dmg, en.name, false);
-              if (en.kind === 'bloodsucker' || Math.random() < 0.35) player.bleeding = Math.min(100, player.bleeding + 28);
+              en.atkCd = en.kind === 'dog' ? 1.25 : (en.kind === 'boar' ? 1.7 : 1.45);
+              if (distP < 30) window.SoundEngine.playMutantGrowl();
+              if (targetIsPlayer) {
+                game.damagePlayer(en.dmg, en.name, false);
+                if (en.kind === 'bloodsucker' || Math.random() < 0.24) player.bleeding = Math.min(100, player.bleeding + 18);
+              } else {
+                target.hp -= en.dmg;
+                target.hitFlash = 0.16;
+                if (target.hp <= 0) this.onEnemyKilled(target, false, game, en.name);
+              }
             }
           }
         } else {
           en.cloakAlpha = 1.0;
-          if (en.isHuman) {
-            let targetBag = null;
-            for (const b of this.lootBags) {
-              if (Math.hypot(b.x - en.x, b.z - en.z) < 22 && !this.world.isSafeZone(b.x, b.z)) { targetBag = b; break; }
-            }
-            if (targetBag) {
-              const bx = targetBag.x - en.x, bz = targetBag.z - en.z, bd = Math.hypot(bx, bz);
-              en.yaw = Math.atan2(bx, bz);
-              if (bd > 1.5) {
-                this._moveEnemy(en, (bx / bd) * en.speed * 0.7 * dt, (bz / bd) * en.speed * 0.7 * dt);
-                en.animPhase += dt * 4;
-              } else {
-                en.lootedBag.push(...targetBag.items);
-                const bi = this.lootBags.indexOf(targetBag);
-                if (bi >= 0) this.lootBags.splice(bi, 1);
-                if (targetBag.isPlayerBag) game.toast('⚠ Бандит облутал вашу Сумку с хабаром! Убейте его!', 'bad');
-              }
-              continue;
-            }
-          }
+          en.reactDelay = 0.65;
           if (!en.patrolTarget || Math.hypot(en.patrolTarget.x - en.x, en.patrolTarget.z - en.z) < 1.5) {
-            en.patrolTarget = { x: en.homeX + (Math.random() - 0.5) * 14, z: en.homeZ + (Math.random() - 0.5) * 14 };
+            en.patrolTarget = { x: en.homeX + (Math.random() - 0.5) * 16, z: en.homeZ + (Math.random() - 0.5) * 16 };
           }
           const px = en.patrolTarget.x - en.x, pz = en.patrolTarget.z - en.z, pd = Math.hypot(px, pz);
           if (pd > 0.5) {
             en.yaw = Math.atan2(px, pz);
             this._moveEnemy(en, (px / pd) * en.speed * 0.35 * dt, (pz / pd) * en.speed * 0.35 * dt);
-            en.animPhase += dt * 2.5;
+            en.animPhase += dt * 2.4;
           }
         }
       }
     }
 
     _moveEnemy(en, dx, dz) {
-      if (this.world.isSafeZone(en.x + dx, en.z + dz)) return;
+      if (this.world.isAnySafeZone(en.x + dx, en.z + dz)) return;
       const res = this.engine.moveWithCollisions(en.x, en.y, en.z, dx, 0, dz, en.radius, en.height);
       en.x = res.x; en.y = res.y; en.z = res.z;
     }
@@ -592,15 +675,16 @@ window.EntityManager = (function () {
       const loot = [...en.lootedBag];
       if (en.isHuman) {
         loot.push({ id: 'ammo_fmj', count: 15 + Math.floor(Math.random() * 20) });
-        if (Math.random() < 0.6) loot.push({ id: 'medkit', count: 1 });
+        if (Math.random() < 0.65) loot.push({ id: 'medkit', count: 1 });
+        if (Math.random() < 0.55) loot.push({ id: 'bandage', count: 2 });
         if (Math.random() < 0.55) loot.push({ id: 'loot_pda', count: 1 });
         loot.push({ id: en.tier >= 3 ? 'res_data' : 'res_radio', count: 1 + (en.tier >= 3 ? 2 : 1) });
-        if (Math.random() < 0.35) loot.push({ id: 'tools', count: 1 });
+        if (Math.random() < 0.4) loot.push({ id: 'tools', count: 1 });
         this.spawnLootBag(en.x, en.z, `Сумка: ${en.name}`, loot, false);
       } else {
         const partId = en.kind === 'dog' ? 'part_dog' : (en.kind === 'boar' ? 'part_boar' : 'part_blood');
         loot.push({ id: partId, count: 1 });
-        if (Math.random() < 0.65) loot.push({ id: en.tier >= 3 ? 'res_data' : (Math.random() > 0.5 ? 'res_moss' : 'res_root'), count: 1 });
+        if (Math.random() < 0.7) loot.push({ id: en.tier >= 3 ? 'res_data' : (Math.random() > 0.5 ? 'res_moss' : 'res_root'), count: 1 });
         this.spawnLootBag(en.x, en.z, `Трофей: ${en.name}`, loot, false);
       }
 
@@ -609,7 +693,7 @@ window.EntityManager = (function () {
         if (remaining === 0) {
           const spot = this.world.spots.find(s => s.id === en.spotId);
           if (spot) {
-            spot.clearedCooldown = 90;
+            spot.clearedCooldown = 95;
             const bonus = spot.tier * 950;
             const resId = spot.tier >= 3 ? 'res_data' : (spot.tier === 2 ? 'res_radio' : 'res_root');
             window.GameData.addItemToList(game.profile.backpack, resId, 2);
@@ -622,16 +706,19 @@ window.EntityManager = (function () {
       }
     }
 
-    raycastEnemies(ox, oy, oz, dx, dy, dz, maxDist) {
+    raycastEnemies(ox, oy, oz, dx, dy, dz, maxDist, playerFaction = 'stalker') {
       let bestHit = null;
       let bestT = maxDist;
       for (const en of this.enemies) {
         if (en.hp <= 0 || en._dead) continue;
-        const headH = en.isHuman ? 0.40 : 0.38;
+        // Do not hit allied faction patrols!
+        if (!this.isHostileToPlayer(en, playerFaction)) continue;
+
+        const headH = en.isHuman ? 0.42 : 0.38;
         const headBox = {
-          minX: en.x - en.radius * 0.78, maxX: en.x + en.radius * 0.78,
+          minX: en.x - en.radius * 0.80, maxX: en.x + en.radius * 0.80,
           minY: en.y + en.height - headH, maxY: en.y + en.height + 0.1,
-          minZ: en.z - en.radius * 0.78, maxZ: en.z + en.radius * 0.78
+          minZ: en.z - en.radius * 0.80, maxZ: en.z + en.radius * 0.80
         };
         const th = this.engine.rayIntersectsBox(ox, oy, oz, dx, dy, dz, headBox, bestT);
         if (th > 0 && th < bestT) { bestT = th; bestHit = { enemy: en, dist: th, isHeadshot: true }; continue; }
@@ -647,6 +734,36 @@ window.EntityManager = (function () {
       return bestHit;
     }
 
+    raycastRemotePlayers(ox, oy, oz, dx, dy, dz, maxDist, playerFaction = 'stalker') {
+      let bestHit = null;
+      let bestT = maxDist;
+      for (const rp of this.remotePlayers) {
+        if (!rp || !rp.uid || (rp.hp !== undefined && rp.hp <= 0)) continue;
+        // Friendly fire off between same faction; safe zone protected
+        if ((rp.faction || 'stalker') === playerFaction) continue;
+        if (this.world.isSafeZone(rp.x, rp.z, rp.faction || 'stalker')) continue;
+        const rx = rp.rx ?? rp.x;
+        const ry = rp.ry ?? rp.y;
+        const rz = rp.rz ?? rp.z;
+        const headBox = {
+          minX: rx - 0.42, maxX: rx + 0.42,
+          minY: ry + 1.38, maxY: ry + 1.92,
+          minZ: rz - 0.42, maxZ: rz + 0.42
+        };
+        const th = this.engine.rayIntersectsBox(ox, oy, oz, dx, dy, dz, headBox, bestT);
+        if (th > 0 && th < bestT) { bestT = th; bestHit = { remote: rp, dist: th, isHeadshot: true }; continue; }
+
+        const bodyBox = {
+          minX: rx - 0.50, maxX: rx + 0.50,
+          minY: ry, maxY: ry + 1.38,
+          minZ: rz - 0.50, maxZ: rz + 0.50
+        };
+        const tb = this.engine.rayIntersectsBox(ox, oy, oz, dx, dy, dz, bodyBox, bestT);
+        if (tb > 0 && tb < bestT) { bestT = tb; bestHit = { remote: rp, dist: tb, isHeadshot: false }; }
+      }
+      return bestHit;
+    }
+
     getDynamicPointLights(player, muzzleLight) {
       const lights = [];
       const now = performance.now() * 0.001;
@@ -654,11 +771,20 @@ window.EntityManager = (function () {
         const flick = L.flicker ? (0.82 + Math.sin(now * 13) * 0.12 + Math.cos(now * 23) * 0.08) : 1.0;
         lights.push({ x: L.x, y: L.y, z: L.z, r: L.r, cr: L.cr * flick, cg: L.cg * flick, cb: L.cb * flick });
       }
+      if (player.flashlightOn) {
+        const fx = -Math.sin(player.yaw) * Math.cos(player.pitch);
+        const fy = Math.sin(player.pitch);
+        const fz = -Math.cos(player.yaw) * Math.cos(player.pitch);
+        lights.push({
+          x: player.x + fx * 6.5, y: Math.max(player.y + 0.6, player.y + 1.6 + fy * 6.5), z: player.z + fz * 6.5,
+          r: 24, cr: 1.55, cg: 1.62, cb: 1.48
+        });
+      }
       if (muzzleLight > 0.01) {
         lights.push({ x: player.x, y: player.y + 1.5, z: player.z, r: 16, cr: 1.8 * muzzleLight, cg: 1.15 * muzzleLight, cb: 0.42 * muzzleLight });
       }
       for (const a of this.world.anomalies) {
-        if (Math.hypot(a.x - player.x, a.z - player.z) < 32 && now >= a.dischargedUntil) {
+        if (Math.hypot(a.x - player.x, a.z - player.z) < 34 && now >= a.dischargedUntil) {
           const ay = this.world.getHeight(a.x, a.z);
           const col = a.type === 'electro' ? [0.28, 0.78, 1.25]
             : a.type === 'burner' ? [1.5, 0.55, 0.12]
@@ -670,8 +796,8 @@ window.EntityManager = (function () {
       return lights.slice(0, 8);
     }
 
-    // === ICONIC STALZONE BLOCKY-ARMORED CHARACTER RENDERER (Screenshot 1 Style!) ===
-    _drawArmoredStalker(x, y, z, yaw, suitCol, visorCol, legSwing, flash, alpha = 1.0, hasRifle = true) {
+    // === HIGH-DETAIL STALZONE ARMORED CHARACTER MODEL (Zero Coplanar Z-Fighting) ===
+    _drawArmoredStalker(x, y, z, yaw, suitCol, visorCol, legSwing, flash, alpha = 1.0, hasRifle = true, faction = 'stalker') {
       const E = this.engine;
       const cy = Math.cos(yaw), sy = Math.sin(yaw);
       const part = (lx, ly, lz, sx, syz, sz, rx, col, tex, em = 0, spec = 0.25) => {
@@ -680,57 +806,76 @@ window.EntityManager = (function () {
         E.drawBox(wx, y + ly, wz, sx, syz, sz, yaw, rx, col, tex, em + flash, alpha > 0.8, spec);
       };
 
-      const dark = [0.16, 0.18, 0.19, alpha];
-      const gear = [0.24, 0.27, 0.24, alpha];
+      const dark = [0.15, 0.16, 0.17, alpha];
+      const gear = [0.24, 0.26, 0.23, alpha];
+      const strap = [0.18, 0.19, 0.16, alpha];
+      const wood = [0.46, 0.28, 0.16, alpha];
 
-      // Heavy armored boots & knee pads + legs
-      part(-0.17, 0.15, 0, 0.26, 0.30, 0.32, 0, dark, 'asphalt', 0, 0.3);
-      part(0.17,  0.15, 0, 0.26, 0.30, 0.32, 0, dark, 'asphalt', 0, 0.3);
-      part(-0.17, 0.54, 0, 0.25, 0.55, 0.26, legSwing, suitCol, 'camo_armor', 0, 0.18);
-      part(0.17,  0.54, 0, 0.25, 0.55, 0.26, -legSwing, suitCol, 'camo_armor', 0, 0.18);
-      // Knee pads
-      part(-0.17, 0.46, 0.14, 0.20, 0.18, 0.08, legSwing, gear, 'gunmetal', 0, 0.45);
-      part(0.17,  0.46, 0.14, 0.20, 0.18, 0.08, -legSwing, gear, 'gunmetal', 0, 0.45);
+      // 1. Tactical Combat Boots + Sole & Toe Caps
+      part(-0.17, 0.12, 0.02, 0.24, 0.24, 0.32, 0, dark, 'asphalt', 0, 0.32);
+      part(0.17,  0.12, 0.02, 0.24, 0.24, 0.32, 0, dark, 'asphalt', 0, 0.32);
+      part(-0.17, 0.08, 0.18, 0.21, 0.14, 0.09, 0, [0.12, 0.13, 0.13, alpha], 'gunmetal', 0, 0.4);
+      part(0.17,  0.08, 0.18, 0.21, 0.14, 0.09, 0, [0.12, 0.13, 0.13, alpha], 'gunmetal', 0, 0.4);
 
-      // Armored Torso + Tactical Plate Carrier & Mag Pouches
-      part(0, 1.12, 0, 0.62, 0.68, 0.38, 0, suitCol, 'camo_armor', 0, 0.22);
-      part(0, 1.14, 0.20, 0.50, 0.48, 0.08, 0, gear, 'concrete', 0, 0.3);
-      part(-0.15, 1.02, 0.25, 0.12, 0.18, 0.07, 0, dark, 'asphalt');
-      part(0.0,   1.02, 0.25, 0.12, 0.18, 0.07, 0, dark, 'asphalt');
-      part(0.15,  1.02, 0.25, 0.12, 0.18, 0.07, 0, dark, 'asphalt');
+      // 2. Armored Legs + Thigh Holster + Sculpted Knee Guards
+      part(-0.17, 0.54, 0, 0.25, 0.58, 0.26, legSwing, suitCol, 'camo_armor', 0, 0.18);
+      part(0.17,  0.54, 0, 0.25, 0.58, 0.26, -legSwing, suitCol, 'camo_armor', 0, 0.18);
+      part(-0.17, 0.47, 0.16, 0.19, 0.16, 0.06, legSwing, gear, 'gunmetal', 0, 0.48);
+      part(0.17,  0.47, 0.16, 0.19, 0.16, 0.06, -legSwing, gear, 'gunmetal', 0, 0.48);
+      part(0.31,  0.64, 0.02, 0.08, 0.20, 0.15, -legSwing * 0.5, dark, 'asphalt', 0, 0.3); // Side holster
 
-      // Backpack with rolled sleeping mat
-      part(0, 1.16, -0.28, 0.46, 0.54, 0.22, 0, [0.32, 0.34, 0.25, alpha], 'crate', 0, 0.15);
-      part(0, 1.46, -0.28, 0.50, 0.14, 0.14, 0, [0.46, 0.42, 0.3, alpha], 'wood');
+      // 3. Utility Belt + Armored Torso + Multi-Layer Plate Carrier
+      part(0, 0.85, 0, 0.64, 0.11, 0.42, 0, strap, 'asphalt', 0, 0.32);
+      part(0, 1.18, 0, 0.60, 0.58, 0.37, 0, suitCol, 'camo_armor', 0, 0.2);
+      part(0, 1.20, 0.21, 0.48, 0.44, 0.07, 0, gear, 'concrete', 0, 0.32);
+      // 3 Ammo Pouches + Radio with Antenna on Left Collar
+      part(-0.15, 1.04, 0.27, 0.11, 0.18, 0.06, 0, dark, 'asphalt');
+      part(0.0,   1.04, 0.27, 0.11, 0.18, 0.06, 0, dark, 'asphalt');
+      part(0.15,  1.04, 0.27, 0.11, 0.18, 0.06, 0, dark, 'asphalt');
+      part(-0.22, 1.36, 0.25, 0.09, 0.14, 0.06, 0, [0.18, 0.22, 0.20, alpha], 'gunmetal', 0, 0.5);
+      part(-0.24, 1.54, 0.25, 0.02, 0.24, 0.02, 0, dark, 'gunmetal'); // Radio antenna
 
-      // Armored Shoulder Pauldrons & Arms
-      part(-0.40, 1.32, 0, 0.24, 0.26, 0.30, 0, suitCol, 'camo_armor', 0, 0.28);
-      part(0.40,  1.32, 0, 0.24, 0.26, 0.30, 0, suitCol, 'camo_armor', 0, 0.28);
-      part(-0.38, 1.02, 0.12, 0.20, 0.46, 0.22, -0.5, suitCol, 'camo_armor');
-      part(0.38,  1.02, 0.12, 0.20, 0.46, 0.22, -0.5, suitCol, 'camo_armor');
+      // 4. Tactical Field Backpack + Bedroll + Canteen
+      part(0, 1.17, -0.29, 0.44, 0.50, 0.20, 0, [0.30, 0.33, 0.24, alpha], 'crate', 0, 0.16);
+      part(0, 1.46, -0.29, 0.48, 0.13, 0.14, 0, [0.46, 0.41, 0.28, alpha], 'wood');
+      part(0.24, 1.04, -0.27, 0.10, 0.16, 0.10, 0, [0.32, 0.38, 0.30, alpha], 'rust', 0, 0.4);
 
-      // Armored Hood + Gas Mask with Twin Glowing/Tinted Goggles & Respirator Filter!
-      part(0, 1.66, -0.02, 0.52, 0.48, 0.50, 0, suitCol, 'camo_armor', 0, 0.22); // Outer hood
-      part(0, 1.64, 0.20, 0.36, 0.34, 0.14, 0, dark, 'asphalt', 0, 0.45);        // Mask rubber face
-      // Twin tinted gas-mask visor lenses
-      part(-0.09, 1.70, 0.27, 0.12, 0.10, 0.05, 0, visorCol, 'white', 0.55, 0.9);
-      part(0.09,  1.70, 0.27, 0.12, 0.10, 0.05, 0, visorCol, 'white', 0.55, 0.9);
-      // Respirator snout + side canister filter
-      part(0, 1.56, 0.29, 0.14, 0.12, 0.12, 0, [0.22, 0.24, 0.24, alpha], 'gunmetal', 0, 0.55);
-      part(0.16, 1.54, 0.24, 0.12, 0.14, 0.12, 0, [0.36, 0.42, 0.32, alpha], 'rust', 0, 0.5);
+      // 5. Layered Shoulder Armor + Faction Armband + Arms & Gloves
+      part(-0.41, 1.34, 0, 0.23, 0.24, 0.28, 0, suitCol, 'camo_armor', 0, 0.26);
+      part(0.41,  1.34, 0, 0.23, 0.24, 0.28, 0, suitCol, 'camo_armor', 0, 0.26);
+      const bandCol = faction === 'stalker' ? [0.35, 0.85, 0.45, alpha] : (faction === 'bandit' ? [0.95, 0.45, 0.22, alpha] : [0.3, 0.72, 0.98, alpha]);
+      part(-0.43, 1.24, 0, 0.25, 0.08, 0.30, 0, bandCol, 'white', 0.25); // Faction armband
+      part(-0.39, 1.02, 0.12, 0.19, 0.44, 0.20, -0.5, suitCol, 'camo_armor');
+      part(0.39,  1.02, 0.12, 0.19, 0.44, 0.20, -0.5, suitCol, 'camo_armor');
+      part(-0.34, 0.92, 0.30, 0.14, 0.13, 0.14, 0, dark, 'asphalt', 0, 0.35); // Tactical gloves
+      part(0.34,  0.92, 0.30, 0.14, 0.13, 0.14, 0, dark, 'asphalt', 0, 0.35);
 
-      // Detailed Assault Rifle held across chest/aimed
+      // 6. Sculpted Armored Hood/Helmet + Gas Mask + Dual Filters + Glowing Lenses
+      part(0, 1.67, -0.02, 0.50, 0.46, 0.48, 0, suitCol, 'camo_armor', 0, 0.24);
+      part(0, 1.91, -0.01, 0.42, 0.08, 0.42, 0, gear, 'gunmetal', 0, 0.42); // Helmet crown cap
+      part(0, 1.85, 0.23, 0.44, 0.06, 0.10, 0, gear, 'gunmetal', 0, 0.4);   // Hood visor lip
+      part(0, 1.64, 0.23, 0.34, 0.32, 0.09, 0, dark, 'asphalt', 0, 0.45);  // Mask face
+      part(-0.09, 1.71, 0.29, 0.12, 0.09, 0.04, 0, visorCol, 'white', 0.55, 0.9);
+      part(0.09,  1.71, 0.29, 0.12, 0.09, 0.04, 0, visorCol, 'white', 0.55, 0.9);
+      part(0, 1.56, 0.31, 0.12, 0.11, 0.11, 0, [0.22, 0.24, 0.25, alpha], 'gunmetal', 0, 0.6);
+      part(0.15,  1.54, 0.27, 0.11, 0.13, 0.11, 0, [0.36, 0.42, 0.32, alpha], 'rust', 0, 0.5);
+      part(-0.15, 1.54, 0.27, 0.11, 0.13, 0.11, 0, [0.36, 0.42, 0.32, alpha], 'rust', 0, 0.5);
+
+      // 7. Detailed Assault Rifle (Stock, Receiver, Handguard, Magazine, Optic, Barrel)
       if (hasRifle) {
-        part(0.18, 1.08, 0.44, 0.09, 0.13, 0.72, 0, [0.24, 0.26, 0.28, alpha], 'gunmetal', 0, 0.65);
-        part(0.18, 0.96, 0.52, 0.06, 0.18, 0.09, -0.2, dark, 'asphalt');
-        part(0.18, 1.10, 0.88, 0.04, 0.04, 0.34, 0, dark, 'gunmetal', 0, 0.7);
+        part(0.18, 1.07, 0.14, 0.07, 0.11, 0.24, 0, wood, 'wood', 0, 0.2);               // Stock
+        part(0.18, 1.08, 0.44, 0.085, 0.12, 0.38, 0, [0.22, 0.24, 0.26, alpha], 'gunmetal', 0, 0.7); // Receiver
+        part(0.18, 1.08, 0.72, 0.075, 0.095, 0.22, 0, wood, 'wood', 0, 0.25);            // Handguard
+        part(0.18, 1.17, 0.46, 0.05, 0.06, 0.12, 0, dark, 'gunmetal', 0, 0.8);           // Red-dot optic
+        part(0.18, 0.94, 0.52, 0.055, 0.20, 0.085, -0.22, dark, 'asphalt');              // Curved magazine
+        part(0.18, 1.10, 0.98, 0.036, 0.036, 0.34, 0, dark, 'gunmetal', 0, 0.78);        // Barrel + muzzle
       }
     }
 
     renderAll(nowSec, player) {
       const E = this.engine;
 
-      // 1. Live Animated Campfire Flames!
+      // 1. Live Animated Campfire Flames
       for (const cf of this.world.campfires) {
         const f1 = 0.85 + Math.sin(nowSec * 16 + cf.x) * 0.22;
         const f2 = 0.8 + Math.cos(nowSec * 21 + cf.z) * 0.25;
@@ -738,20 +883,53 @@ window.EntityManager = (function () {
         E.drawBox(cf.x, cf.y + 0.42 * f2, cf.z, 0.28, 0.55 * f2, 0.28, -nowSec * 2.1, 0, [1.0, 0.88, 0.35, 0.92], 'white', 2.2, false);
       }
 
-      // 2. Render Bar Stalker NPCs (Detailed Armored Stalkers facing player!)
+      // 2. Render Base NPCs (Both Stalker Bar & Bandit Depot)
       for (const n of this.world.npcs) {
         if (n.isBox) continue;
+        if (Math.hypot(player.x - n.x, player.z - n.z) > 130) continue;
         const ny = this.world.getHeight(n.x, n.z);
         const lookYaw = Math.atan2(player.x - n.x, player.z - n.z);
-        this._drawArmoredStalker(n.x, ny, n.z, lookYaw, n.color, n.visor || [0.95, 0.72, 0.22, 1], 0, 0, 1.0, n.id === 'fence');
+        this._drawArmoredStalker(n.x, ny, n.z, lookYaw, n.color, n.visor || [0.95, 0.72, 0.22, 1], 0, 0, 1.0, n.id === 'fence', n.faction);
         const bob = Math.sin(nowSec * 3 + n.x) * 0.06;
-        E.drawBox(n.x, ny + 2.38 + bob, n.z, 0.18, 0.18, 0.18, nowSec * 2, 0, n.visor || n.color, 'white', 1.1);
+        E.drawBox(n.x, ny + 2.42 + bob, n.z, 0.16, 0.16, 0.16, nowSec * 2, 0, n.visor || n.color, 'white', 1.1);
       }
 
-      // 3. Render Anomalies (including towering Burner fire columns like Screenshot 1!)
+      // 3. Render Remote Online Players (interpolated in real time via Firestore bridge)
+      for (const rp of this.remotePlayers) {
+        if (rp.rx === undefined) { rp.rx = rp.x; rp.ry = rp.y; rp.rz = rp.z; rp.ryaw = rp.yaw || 0; rp.swing = 0; }
+        rp.rx += (rp.x - rp.rx) * 0.22;
+        rp.ry += (rp.y - rp.ry) * 0.22;
+        rp.rz += (rp.z - rp.rz) * 0.22;
+        rp.ryaw = rp.yaw || 0;
+        rp.swing = rp.moving ? Math.sin(nowSec * 9.5) * 0.45 : (rp.swing * 0.85);
+        const suitCol = rp.faction === 'bandit' ? [0.28, 0.25, 0.28, 1] : [0.42, 0.54, 0.38, 1];
+        const visorCol = rp.faction === 'bandit' ? [1.0, 0.45, 0.22, 1] : [0.32, 0.95, 0.55, 1];
+        const flash = rp.hitFlash > 0 ? 1.0 : 0;
+        if (rp.hitFlash > 0) rp.hitFlash = Math.max(0, rp.hitFlash - 0.03);
+        this._drawArmoredStalker(rp.rx, rp.ry, rp.rz, rp.ryaw, suitCol, visorCol, rp.swing, flash, 1.0, true, rp.faction || 'stalker');
+        E.drawBox(rp.rx, rp.ry + 2.38 + Math.sin(nowSec * 3.5) * 0.04, rp.rz, 0.20, 0.20, 0.20, nowSec * 1.8, 0, visorCol, 'white', 1.35);
+        if (rp.firing) {
+          const fx = rp.rx - Math.sin(rp.ryaw) * 0.8;
+          const fz = rp.rz - Math.cos(rp.ryaw) * 0.8;
+          E.drawBox(fx, rp.ry + 1.28, fz, 0.24, 0.24, 0.24, nowSec * 22, 0, [1.0, 0.72, 0.22, 0.9], 'white', 2.4);
+        }
+      }
+
+      // 4. Render World Stashes (12 Supply Crates across the 520m Zone)
+      for (const st of this.world.worldStashes) {
+        if (Math.hypot(player.x - st.x, player.z - st.z) > 130) continue;
+        const hasLoot = st.items && st.items.length > 0;
+        const col = hasLoot ? [0.74, 0.84, 0.62, 1] : [0.44, 0.46, 0.44, 1];
+        E.drawBox(st.x, st.y + 0.34, st.z, 1.05, 0.64, 0.72, 0.2, 0, col, 'crate', hasLoot ? 0.22 : 0.0, true, 0.3);
+        if (hasLoot) {
+          E.drawBox(st.x, st.y + 0.72, st.z, 0.22, 0.08, 0.22, 0.2, 0, [0.95, 0.78, 0.28, 1], 'white', 1.1);
+        }
+      }
+
+      // 5. Render Anomalies
       for (const a of this.world.anomalies) {
         const discharged = nowSec < a.dischargedUntil;
-        if (discharged) continue;
+        if (discharged || Math.hypot(player.x - a.x, player.z - a.z) > 130) continue;
         const ay = this.world.getHeight(a.x, a.z);
         const p = 0.78 + Math.sin(a.pulse) * 0.22;
         if (a.type === 'acid') {
@@ -759,7 +937,6 @@ window.EntityManager = (function () {
         } else if (a.type === 'electro') {
           E.drawBox(a.x, ay + 0.9 + Math.sin(a.pulse * 2) * 0.25, a.z, 0.65 * p, 0.65 * p, 0.65 * p, a.pulse, a.pulse * 0.5, [0.42, 0.92, 1.0, 0.68], 'white', 1.5, false);
         } else if (a.type === 'burner') {
-          // Iconic tall flickering fire pillar from Screenshot 1!
           const pillarH = 3.2 + Math.sin(a.pulse * 3.4) * 1.1;
           E.drawBox(a.x, ay + 0.16, a.z, 1.9, 0.18, 1.9, 0, 0, [1.0, 0.35, 0.06, 0.72], 'white', 1.2, false);
           E.drawBox(a.x, ay + pillarH * 0.5, a.z, 0.75 * p, pillarH, 0.75 * p, a.pulse * 2, 0, [1.0, 0.52, 0.10, 0.62], 'white', 1.9, false);
@@ -771,17 +948,18 @@ window.EntityManager = (function () {
         }
       }
 
-      // 4. Proto-Anomalies
+      // 6. Proto-Anomalies
       for (const pr of this.world.protoAnomalies) {
+        if (Math.hypot(player.x - pr.x, player.z - pr.z) > 150) continue;
         const py = this.world.getHeight(pr.x, pr.z);
         const col = pr.active ? [0.25, 0.95, 1.0, 0.92] : (pr.cooldown > 0 ? [0.4, 0.45, 0.5, 0.4] : [0.95, 0.75, 0.25, 0.88]);
         E.drawBox(pr.x, py + 1.9 + Math.sin(nowSec * 3) * 0.2, pr.z, 1.15, 1.15, 1.15, nowSec * 1.6, nowSec, col, 'white', 1.3, false);
         E.drawBox(pr.x, py + 0.3, pr.z, 2.4, 0.5, 2.4, 0, 0, [0.35, 0.38, 0.4, 1], 'hazard');
       }
 
-      // 5. Artifacts
+      // 7. Artifacts
       for (const art of this.world.artifacts) {
-        if (art.collected) continue;
+        if (art.collected || Math.hypot(player.x - art.x, player.z - art.z) > 120) continue;
         const ay = this.world.getHeight(art.x, art.z);
         const def = window.GameData.ARTIFACTS[art.artId];
         const rgb = hexToRgb(def ? def.color : '#65e095');
@@ -791,70 +969,88 @@ window.EntityManager = (function () {
         E.drawBox(art.x, bob, art.z, sz, sz, sz, nowSec * 2.1, nowSec * 1.4, [rgb[0], rgb[1], rgb[2], alpha], 'white', art.revealed ? 1.4 : 0.45, art.revealed);
       }
 
-      // 6. Signal Stash & Loot Bags
+      // 8. Signal Stash & Loot Bags
       if (this.signalStash) {
         const s = this.signalStash;
         E.drawBox(s.x, s.y + 0.35, s.z, 0.95, 0.65, 0.65, 0.4, 0, [0.25, 0.85, 0.95, 1], 'crate', 0.55);
       }
       for (const b of this.lootBags) {
-        const col = b.isPlayerBag ? [0.78, 0.35, 1.0, 1] : [0.76, 0.58, 0.32, 1];
-        E.drawBox(b.x, b.y + 0.26, b.z, 0.68, 0.48, 0.46, 0.3, 0, col, 'crate', b.isPlayerBag ? 0.55 : 0.2);
+        const col = b.isPlayerBag ? [0.78, 0.35, 1.0, 1] : [0.80, 0.62, 0.34, 1];
+        E.drawBox(b.x, b.y + 0.26, b.z, 0.72, 0.48, 0.48, 0.3, 0, col, 'crate', b.isPlayerBag ? 0.55 : 0.26);
+        E.drawBox(b.x, b.y + 0.54, b.z, 0.28, 0.08, 0.22, 0.3, 0, [0.96, 0.78, 0.3, 1], 'white', 0.85);
         if (b.isPlayerBag) {
           E.drawBox(b.x, b.y + 5.0, b.z, 0.14, 10, 0.14, 0, 0, [0.78, 0.35, 1.0, 0.36], 'white', 1.2, false);
         }
       }
 
-      // 7. Detailed Enemies (Armored Bandits/Mercs & Detailed Mutants)
+      // 9. Detailed Enemies (Stalkers, Bandits, Mercs & Upgraded Mutants)
       for (const en of this.enemies) {
-        if (en.hp <= 0) continue;
+        if (en.hp <= 0 || Math.hypot(player.x - en.x, player.z - en.z) > 135) continue;
         const flash = en.hitFlash > 0 ? 0.7 : 0;
         const legSwing = Math.sin(en.animPhase) * 0.34;
         const a = en.cloakAlpha;
 
         if (en.isHuman) {
-          const suitCol = en.tier >= 3 ? [0.28, 0.34, 0.44, a] : (en.tier === 2 ? [0.42, 0.36, 0.28, a] : [0.26, 0.26, 0.28, a]);
-          const visorCol = en.tier >= 3 ? [0.28, 0.85, 1.0, a] : [0.95, 0.36, 0.24, a];
-          this._drawArmoredStalker(en.x, en.y, en.z, en.yaw, suitCol, visorCol, legSwing, flash, a, true);
+          let suitCol, visorCol;
+          if (en.faction === 'stalker') {
+            suitCol = en.tier >= 2 ? [0.46, 0.58, 0.42, a] : [0.54, 0.58, 0.40, a];
+            visorCol = [0.42, 0.95, 0.52, a];
+          } else if (en.faction === 'merc') {
+            suitCol = [0.28, 0.36, 0.48, a];
+            visorCol = [0.28, 0.88, 1.0, a];
+          } else {
+            suitCol = en.tier >= 2 ? [0.36, 0.30, 0.28, a] : [0.25, 0.25, 0.28, a];
+            visorCol = [0.98, 0.38, 0.22, a];
+          }
+          this._drawArmoredStalker(en.x, en.y, en.z, en.yaw, suitCol, visorCol, legSwing, flash, a, true, en.faction);
         } else if (en.kind === 'dog') {
           const cy = Math.cos(en.yaw), sy = Math.sin(en.yaw);
-          const p = (lx, ly, lz, sx, syz, sz, rx, col) => E.drawBox(en.x + lx * cy + lz * sy, en.y + ly, en.z - lx * sy + lz * cy, sx, syz, sz, en.yaw, rx, col, 'bark', flash);
-          p(0, 0.48, 0, 0.38, 0.36, 0.86, 0, [0.46, 0.34, 0.26, a]);
-          p(0, 0.62, 0.48, 0.30, 0.28, 0.36, 0.1, [0.54, 0.38, 0.30, a]);
-          p(-0.14, 0.22, 0.30, 0.12, 0.42, 0.14, legSwing, [0.38, 0.28, 0.22, a]);
-          p(0.14,  0.22, 0.30, 0.12, 0.42, 0.14, -legSwing, [0.38, 0.28, 0.22, a]);
-          p(-0.14, 0.22, -0.30, 0.12, 0.42, 0.14, -legSwing, [0.38, 0.28, 0.22, a]);
-          p(0.14,  0.22, -0.30, 0.12, 0.42, 0.14, legSwing, [0.38, 0.28, 0.22, a]);
+          const p = (lx, ly, lz, sx, syz, sz, rx, col, tex = 'bark') => E.drawBox(en.x + lx * cy + lz * sy, en.y + ly, en.z - lx * sy + lz * cy, sx, syz, sz, en.yaw, rx, col, tex, flash);
+          p(0, 0.48, 0, 0.36, 0.34, 0.84, 0, [0.46, 0.34, 0.25, a]);
+          p(0, 0.62, 0.46, 0.28, 0.26, 0.30, 0.08, [0.54, 0.38, 0.30, a]);       // Head
+          p(0, 0.56, 0.66, 0.16, 0.14, 0.22, 0.05, [0.42, 0.30, 0.24, a]);       // Snout
+          p(-0.12, 0.78, 0.40, 0.07, 0.14, 0.08, 0.2, [0.38, 0.26, 0.20, a]);    // Ears
+          p(0.12,  0.78, 0.40, 0.07, 0.14, 0.08, 0.2, [0.38, 0.26, 0.20, a]);
+          p(0, 0.54, -0.52, 0.08, 0.08, 0.32, -0.35, [0.40, 0.28, 0.22, a]);     // Tail
+          p(-0.14, 0.22, 0.28, 0.11, 0.42, 0.13, legSwing, [0.36, 0.26, 0.20, a]);
+          p(0.14,  0.22, 0.28, 0.11, 0.42, 0.13, -legSwing, [0.36, 0.26, 0.20, a]);
+          p(-0.14, 0.22, -0.28, 0.11, 0.42, 0.13, -legSwing, [0.36, 0.26, 0.20, a]);
+          p(0.14,  0.22, -0.28, 0.11, 0.42, 0.13, legSwing, [0.36, 0.26, 0.20, a]);
         } else if (en.kind === 'boar') {
-          // Massive hulking hunched Zone Boar / Bruiser (Screenshot 2 bottom-right vibe!)
           const cy = Math.cos(en.yaw), sy = Math.sin(en.yaw);
           const p = (lx, ly, lz, sx, syz, sz, rx, col, tex = 'bark') => E.drawBox(en.x + lx * cy + lz * sy, en.y + ly, en.z - lx * sy + lz * cy, sx, syz, sz, en.yaw, rx, col, tex, flash);
-          p(0, 0.72, 0, 0.88, 0.78, 1.32, 0, [0.36, 0.26, 0.20, a]);
-          p(0, 1.06, 0.24, 0.72, 0.38, 0.78, -0.15, [0.28, 0.22, 0.16, a]); // Hump
-          p(0, 0.70, 0.74, 0.56, 0.50, 0.52, 0.1, [0.42, 0.30, 0.24, a]);   // Head
-          p(-0.22, 0.58, 1.02, 0.08, 0.10, 0.28, -0.3, [0.92, 0.88, 0.76, a], 'white'); // Left Tusk
-          p(0.22,  0.58, 1.02, 0.08, 0.10, 0.28, -0.3, [0.92, 0.88, 0.76, a], 'white'); // Right Tusk
-          p(-0.34, 0.28, 0.42, 0.22, 0.56, 0.24, legSwing, [0.28, 0.20, 0.16, a]);
-          p(0.34,  0.28, 0.42, 0.22, 0.56, 0.24, -legSwing, [0.28, 0.20, 0.16, a]);
-          p(-0.34, 0.28, -0.42, 0.22, 0.56, 0.24, -legSwing, [0.28, 0.20, 0.16, a]);
-          p(0.34,  0.28, -0.42, 0.22, 0.56, 0.24, legSwing, [0.28, 0.20, 0.16, a]);
+          p(0, 0.72, 0, 0.88, 0.76, 1.32, 0, [0.36, 0.26, 0.20, a]);
+          p(0, 1.12, 0.22, 0.66, 0.32, 0.74, -0.15, [0.28, 0.21, 0.16, a]);       // Spine hump
+          p(0, 0.70, 0.74, 0.54, 0.48, 0.48, 0.1, [0.42, 0.30, 0.24, a]);         // Head
+          p(0, 0.60, 1.02, 0.28, 0.22, 0.20, 0, [0.56, 0.38, 0.32, a]);           // Snout
+          p(-0.22, 0.58, 1.06, 0.07, 0.10, 0.30, -0.35, [0.92, 0.88, 0.76, a], 'white'); // Tusks
+          p(0.22,  0.58, 1.06, 0.07, 0.10, 0.30, -0.35, [0.92, 0.88, 0.76, a], 'white');
+          p(-0.34, 0.28, 0.42, 0.20, 0.54, 0.22, legSwing, [0.28, 0.20, 0.16, a]);
+          p(0.34,  0.28, 0.42, 0.20, 0.54, 0.22, -legSwing, [0.28, 0.20, 0.16, a]);
+          p(-0.34, 0.28, -0.42, 0.20, 0.54, 0.22, -legSwing, [0.28, 0.20, 0.16, a]);
+          p(0.34,  0.28, -0.42, 0.20, 0.54, 0.22, legSwing, [0.28, 0.20, 0.16, a]);
         } else if (en.kind === 'bloodsucker') {
           const dw = a > 0.5;
           const cy = Math.cos(en.yaw), sy = Math.sin(en.yaw);
           const p = (lx, ly, lz, sx, syz, sz, rx, col, em = 0) => E.drawBox(en.x + lx * cy + lz * sy, en.y + ly, en.z - lx * sy + lz * cy, sx, syz, sz, en.yaw, rx, col, 'concrete', flash + em, dw);
-          p(-0.16, 0.46, 0, 0.20, 0.92, 0.22, legSwing * 0.7, [0.38, 0.20, 0.22, a]);
-          p(0.16,  0.46, 0, 0.20, 0.92, 0.22, -legSwing * 0.7, [0.38, 0.20, 0.22, a]);
-          p(0, 1.24, 0.08, 0.58, 0.74, 0.34, 0.22, [0.46, 0.24, 0.26, a]);
-          p(-0.38, 1.05, 0.28, 0.16, 0.72, 0.18, -0.6, [0.42, 0.22, 0.24, a]);
-          p(0.38,  1.05, 0.28, 0.16, 0.72, 0.18, -0.6, [0.42, 0.22, 0.24, a]);
-          p(0, 1.72, 0.22, 0.38, 0.40, 0.38, 0.15, [0.54, 0.28, 0.30, a]);
-          // Glowing eerie Bloodsucker eyes & tentacles!
-          p(-0.08, 1.78, 0.42, 0.07, 0.05, 0.05, 0, [1.0, 0.25, 0.2, Math.max(0.55, a)], 1.6);
-          p(0.08,  1.78, 0.42, 0.07, 0.05, 0.05, 0, [1.0, 0.25, 0.2, Math.max(0.55, a)], 1.6);
-          p(0, 1.50, 0.40, 0.24, 0.24, 0.12, 0, [0.48, 0.18, 0.22, a]);
+          p(-0.16, 0.46, 0, 0.19, 0.90, 0.21, legSwing * 0.7, [0.38, 0.20, 0.22, a]);
+          p(0.16,  0.46, 0, 0.19, 0.90, 0.21, -legSwing * 0.7, [0.38, 0.20, 0.22, a]);
+          p(0, 1.24, 0.08, 0.54, 0.72, 0.32, 0.22, [0.46, 0.24, 0.26, a]);
+          p(-0.38, 1.05, 0.28, 0.15, 0.74, 0.16, -0.6, [0.42, 0.22, 0.24, a]);
+          p(0.38,  1.05, 0.28, 0.15, 0.74, 0.16, -0.6, [0.42, 0.22, 0.24, a]);
+          p(-0.38, 0.80, 0.58, 0.09, 0.16, 0.24, -0.4, [0.22, 0.12, 0.14, a]);    // Claws
+          p(0.38,  0.80, 0.58, 0.09, 0.16, 0.24, -0.4, [0.22, 0.12, 0.14, a]);
+          p(0, 1.72, 0.22, 0.36, 0.38, 0.36, 0.15, [0.54, 0.28, 0.30, a]);
+          p(-0.08, 1.78, 0.42, 0.07, 0.05, 0.04, 0, [1.0, 0.25, 0.2, Math.max(0.55, a)], 1.6);
+          p(0.08,  1.78, 0.42, 0.07, 0.05, 0.04, 0, [1.0, 0.25, 0.2, Math.max(0.55, a)], 1.6);
+          // 4 writhing face tentacles
+          for (const tx of [-0.10, -0.035, 0.035, 0.10]) {
+            p(tx, 1.50, 0.42, 0.045, 0.24, 0.055, Math.sin(nowSec * 6 + tx * 20) * 0.25, [0.48, 0.18, 0.22, a]);
+          }
         }
       }
 
-      // 8. Projectiles, Tracers & Particles
+      // 10. Projectiles, Tracers & Particles
       for (const p of this.projectiles) {
         if (p.kind === 'bolt') E.drawBox(p.x, p.y, p.z, 0.08, 0.08, 0.22, nowSec * 10, nowSec * 8, [0.82, 0.86, 0.9, 1], 'gunmetal', 0.25, true, 0.85);
         else E.drawBox(p.x, p.y, p.z, 0.18, 0.24, 0.18, nowSec * 6, nowSec * 4, [0.3, 0.44, 0.24, 1], 'concrete', 0.1);

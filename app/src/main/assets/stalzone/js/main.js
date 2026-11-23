@@ -16,15 +16,17 @@
       this.currentInteractTarget = null;
       this.autosaveTimer = 15;
 
-      // Spawn directly beside the Bar campfire, camo netting, ZIL truck & Stalker guard!
+      const fac = window.GameData.FACTIONS[this.profile.faction] || window.GameData.FACTIONS.stalker;
       this.player = {
-        x: 2.0, y: 0, z: 7.4,
+        x: fac.spawnX, y: this.world.getHeight(fac.spawnX, fac.spawnZ), z: fac.spawnZ,
         vy: 0, onGround: true,
-        yaw: -0.45, pitch: -0.04,
+        yaw: fac.spawnYaw, pitch: -0.04,
         hp: 100, stamina: 100, bleeding: 0,
         contam: { rad: 0, bio: 0, therm: 0, psy: 0 },
         healOverTime: 0, healTimer: 0,
         energyBuffTimer: 0,
+        flashlightOn: false,
+        nearCampfire: false,
         activeSlot: 'primary', // 'primary' | 'secondary' | 'melee'
         ammoType: 'fmj',
         fireMode: 'auto',
@@ -37,6 +39,55 @@
         currentSpread: 0.02,
         damageFlash: 0, shake: 0,
         dead: false
+      };
+
+      this.onlineMeta = { uid: '', callsign: 'Сталкер', sectorId: 'zone_1', onlineCount: 1 };
+      this.chatMessages = [];
+      this.onlineSyncTimer = 0.2;
+
+      window.STALZONE_REMOTE_PLAYERS = (list) => {
+        if (!this.entities) return;
+        const incoming = Array.isArray(list) ? list : [];
+        const prevMap = new Map((this.entities.remotePlayers || []).map(r => [r.uid, r]));
+        this.entities.remotePlayers = incoming.map(np => {
+          const old = prevMap.get(np.uid);
+          if (old) {
+            return { ...np, rx: old.rx ?? np.x, ry: old.ry ?? np.y, rz: old.rz ?? np.z, ryaw: old.ryaw ?? np.yaw, swing: old.swing ?? 0, hitFlash: old.hitFlash ?? 0 };
+          }
+          return { ...np, rx: np.x, ry: np.y, rz: np.z, ryaw: np.yaw, swing: 0, hitFlash: 0 };
+        });
+      };
+
+      window.STALZONE_ONLINE_META = (meta) => {
+        if (!meta) return;
+        this.onlineMeta = { ...this.onlineMeta, ...meta };
+        if (this.ui && this.ui.updateOnlineBadges) this.ui.updateOnlineBadges();
+      };
+
+      window.STALZONE_CHAT_UPDATE = (msgs) => {
+        this.chatMessages = Array.isArray(msgs) ? msgs : [];
+        if (this.ui && this.ui.renderRadioChat) this.ui.renderRadioChat();
+      };
+
+      window.STALZONE_PVP_HIT = (hit) => {
+        if (!hit || this.player.dead) return;
+        if (this.world.isSafeZone(this.player.x, this.player.z, this.profile.faction)) return;
+        const dmg = Math.max(1, Math.min(120, Number(hit.damage) || 12));
+        this.damagePlayer(dmg, 'bullet', `Игрок ${hit.attackerName || 'Сталкер'} (${hit.weapon || 'оружие'})`);
+        this.ui.addKillfeed(`⚔ ${hit.attackerName || 'Игрок'} попал по вам${hit.headshot ? ' [ГОЛОВА]' : ''} (-${dmg} HP)`);
+      };
+
+      window.STALZONE_CLOUD_PROFILE = (cp) => {
+        if (!cp) return;
+        if (typeof cp.money === 'number' && cp.money > this.profile.money) this.profile.money = cp.money;
+        if (cp.faction === 'stalker' || cp.faction === 'bandit') this.profile.faction = cp.faction;
+        if (typeof cp.kills === 'number' && cp.kills > (this.profile.stats.killsHuman + this.profile.stats.killsMutant)) {
+          this.profile.stats.killsHuman = cp.kills;
+        }
+        if (typeof cp.artifactsFound === 'number' && cp.artifactsFound > this.profile.stats.artifactsFound) {
+          this.profile.stats.artifactsFound = cp.artifactsFound;
+        }
+        window.GameData.saveProfile(this.profile);
       };
 
       this.ui.applySettingsUI();
@@ -59,9 +110,39 @@
       requestAnimationFrame(t => this.loop(t));
     }
 
-    save() { window.GameData.saveProfile(this.profile); }
+    save() {
+      window.GameData.saveProfile(this.profile);
+      if (window.AndroidBridge && window.AndroidBridge.saveCloudProfile) {
+        try {
+          const st = this.profile.stats || {};
+          window.AndroidBridge.saveCloudProfile(
+            this.profile.faction || 'stalker',
+            Math.max(0, Math.round(this.profile.money || 0)),
+            Math.max(0, Math.round((st.killsHuman || 0) + (st.killsMutant || 0))),
+            Math.max(0, Math.round(st.deaths || 0)),
+            Math.max(0, Math.round(st.artifactsFound || 0)),
+            this.profile.equipment?.primary || 'ak74m',
+            this.profile.equipment?.secondary || 'pm',
+            this.profile.equipment?.armor || 'leather'
+          );
+        } catch (_) {}
+      }
+    }
     toast(msg, kind) { this.ui.toast(msg, kind); }
     addMoney(amount) { this.profile.money += Math.round(amount); }
+
+    setFaction(factionId) {
+      if (!window.GameData.FACTIONS[factionId]) return;
+      this.profile.faction = factionId;
+      this.respawnAtBar(false);
+      this.save();
+    }
+
+    toggleFlashlight() {
+      this.player.flashlightOn = !this.player.flashlightOn;
+      window.SoundEngine.playUI();
+      this.toast(this.player.flashlightOn ? '🔦 Фонарик включён' : '🔦 Фонарик выключен', '');
+    }
 
     progressQuest(type, amount) {
       for (const q of this.profile.quests) {
@@ -154,8 +235,8 @@
       const itemId = map[slotNum];
       if (!itemId) return;
       if (itemId === 'grenade') {
-        if (this.world.isSafeZone(this.player.x, this.player.z)) {
-          this.toast('В Баре запрещено использовать оружие и гранаты!', 'bad');
+        if (this.world.isSafeZone(this.player.x, this.player.z, this.profile.faction)) {
+          this.toast('На базе запрещено использовать оружие и гранаты!', 'bad');
           return;
         }
         if (!window.GameData.removeItemFromList(this.profile.backpack, 'grenade', 1)) {
@@ -191,7 +272,7 @@
 
     damagePlayer(rawDmg, source, ignoreArmor = false) {
       const p = this.player;
-      if (p.dead || this.world.isSafeZone(p.x, p.z)) return;
+      if (p.dead || this.world.isSafeZone(p.x, p.z, this.profile.faction)) return;
       const derived = window.GameData.getPlayerDerivedStats(this.profile);
       const mult = ignoreArmor ? 1.0 : (1 - derived.bulletRes / 120);
       const dmg = rawDmg * mult;
@@ -208,12 +289,12 @@
       const p = this.player;
       p.dead = true;
       this.profile.stats.deaths++;
-      if (this.profile.backpack.length > 0 && !this.world.isSafeZone(p.x, p.z)) {
+      if (this.profile.backpack.length > 0 && !this.world.isSafeZone(p.x, p.z, this.profile.faction)) {
         this.entities.spawnLootBag(p.x, p.z, 'Ваша Сумка с хабаром', this.profile.backpack, true);
         this.profile.backpack = [
-          { id: 'medkit', count: 1 },
-          { id: 'bandage', count: 2 },
-          { id: 'ammo_fmj', count: 60 }
+          { id: 'medkit', count: 1, slot: 0 },
+          { id: 'bandage', count: 2, slot: 1 },
+          { id: 'ammo_fmj', count: 60, slot: 2 }
         ];
       }
       this.save();
@@ -222,9 +303,10 @@
 
     respawnAtBar(keepPos = false) {
       const p = this.player;
+      const fac = window.GameData.FACTIONS[this.profile.faction] || window.GameData.FACTIONS.stalker;
       if (!keepPos) {
-        p.x = 2.0; p.z = 7.4; p.y = this.world.getHeight(2.0, 7.4);
-        p.yaw = -0.45; p.pitch = -0.04;
+        p.x = fac.spawnX; p.z = fac.spawnZ; p.y = this.world.getHeight(fac.spawnX, fac.spawnZ);
+        p.yaw = fac.spawnYaw; p.pitch = -0.04;
       }
       p.vy = 0; p.hp = 100; p.stamina = 100; p.bleeding = 0;
       p.contam = { rad: 0, bio: 0, therm: 0, psy: 0 };
@@ -234,14 +316,19 @@
 
     _findInteractTarget() {
       const p = this.player;
-      let best = null, bestD = 3.8;
+      let best = null, bestD = 3.9;
       for (const n of this.world.npcs) {
         const d = Math.hypot(n.x - p.x, n.z - p.z);
         if (d < bestD) { bestD = d; best = { kind: 'npc', obj: n, label: `${n.name} — ${n.role}`, shortLabel: n.isBox ? 'СХРОН' : 'ГОВОРИТЬ' }; }
       }
       for (const b of this.entities.lootBags) {
+        if (!b.items || b.items.length === 0) continue;
         const d = Math.hypot(b.x - p.x, b.z - p.z);
-        if (d < bestD) { bestD = d; best = { kind: 'bag', obj: b, label: `Забрать: ${b.title} (${b.items.length} шт.)`, shortLabel: 'ЛУТ' }; }
+        if (d < bestD) { bestD = d; best = { kind: 'bag', obj: b, label: `Обыскать: ${b.title} (${b.items.length})`, shortLabel: 'ОБЫСКАТЬ' }; }
+      }
+      for (const st of this.world.worldStashes) {
+        const d = Math.hypot(st.x - p.x, st.z - p.z);
+        if (d < bestD) { bestD = d; best = { kind: 'world_stash', obj: st, label: `Тайник: ${st.title} (${st.items.length})`, shortLabel: 'ТАЙНИК' }; }
       }
       for (const art of this.world.artifacts) {
         if (art.collected || !art.revealed) continue;
@@ -251,7 +338,7 @@
       if (this.entities.signalStash) {
         const s = this.entities.signalStash;
         const d = Math.hypot(s.x - p.x, s.z - p.z);
-        if (d < bestD) { bestD = d; best = { kind: 'signal', obj: s, label: 'Обыскать тайник сигнала САК', shortLabel: 'ТАЙНИК' }; }
+        if (d < bestD) { bestD = d; best = { kind: 'signal', obj: s, label: 'Обыскать тайник сигнала САК', shortLabel: 'СИГНАЛ' }; }
       }
       for (const pr of this.world.protoAnomalies) {
         if (pr.active || pr.cooldown > 0) continue;
@@ -264,13 +351,20 @@
       const t = this.currentInteractTarget;
       if (!t) return;
       if (t.kind === 'npc') { window.SoundEngine.playUI(); this.ui.openNpcModal(t.obj.id); }
-      else if (t.kind === 'bag') {
-        for (const it of t.obj.items) window.GameData.addItemToList(this.profile.backpack, it.id, it.count);
-        const idx = this.entities.lootBags.indexOf(t.obj);
-        if (idx >= 0) this.entities.lootBags.splice(idx, 1);
-        window.SoundEngine.playHeal();
-        this.toast(`✔ Подобран хабар (${t.obj.title})!`, 'good');
-        this.save();
+      else if (t.kind === 'bag' || t.kind === 'world_stash') {
+        window.SoundEngine.playUI();
+        window.GameData.ensureSlots(t.obj.items, 12);
+        this.ui.openLootModal(t.obj, t.kind);
+      } else if (t.kind === 'signal') {
+        window.SoundEngine.playUI();
+        if (!t.obj.moneyClaimed && t.obj.money > 0) {
+          t.obj.moneyClaimed = true;
+          this.addMoney(t.obj.money);
+          this.progressQuest('find_signal', 1);
+          this.toast(`📡 Найдено +${t.obj.money} ₽ в тайнике сигнала!`, 'good');
+        }
+        window.GameData.ensureSlots(t.obj.items, 12);
+        this.ui.openLootModal(t.obj, 'signal');
       } else if (t.kind === 'artifact') {
         t.obj.collected = true;
         window.GameData.addItemToList(this.profile.backpack, t.obj.artId, 1);
@@ -278,14 +372,6 @@
         this.progressQuest('pickup_art', 1);
         window.SoundEngine.playHeal();
         this.toast(`✨ Артефакт «${window.GameData.ARTIFACTS[t.obj.artId].name}» в рюкзаке!`, 'good');
-        this.save();
-      } else if (t.kind === 'signal') {
-        for (const it of t.obj.items) window.GameData.addItemToList(this.profile.backpack, it.id, it.count);
-        this.addMoney(t.obj.money);
-        this.entities.signalStash = null;
-        this.progressQuest('find_signal', 1);
-        window.SoundEngine.playHeal();
-        this.toast(`📡 Тайник сигнала обыскан! +${t.obj.money} ₽`, 'good');
         this.save();
       } else if (t.kind === 'proto') {
         this.entities.activateProtoAnomaly(t.obj, this);
@@ -388,8 +474,8 @@
         if (allowShot) {
           if (p.activeSlot === 'melee') {
             this._slashKnife();
-          } else if (this.world.isSafeZone(p.x, p.z)) {
-            if (!p.triggerWasDown) this.toast('Стрельба запрещена в сейв-зоне «Бар»!', 'bad');
+          } else if (this.world.isSafeZone(p.x, p.z, this.profile.faction)) {
+            if (!p.triggerWasDown) this.toast('Стрельба запрещена в своей сейв-зоне!', 'bad');
           } else {
             this._fireWeapon(wpn);
           }
@@ -400,6 +486,22 @@
       this._updateContaminationsAndVitals(dt, derived);
       this._updateDetector(dt, derived);
       this.currentInteractTarget = this._findInteractTarget();
+
+      // Sync real-time online presence to Firestore via AndroidBridge
+      this.onlineSyncTimer -= dt;
+      if (this.onlineSyncTimer <= 0 && window.AndroidBridge && window.AndroidBridge.syncOnlineState) {
+        this.onlineSyncTimer = 0.45;
+        try {
+          window.AndroidBridge.syncOnlineState(
+            this.profile.faction || 'stalker',
+            p.x, p.y, p.z, p.yaw,
+            Math.max(0, Math.round(p.hp)),
+            wpn.id || 'ak74m',
+            isMoving,
+            p.muzzleFlash > 0.05
+          );
+        } catch (_) {}
+      }
     }
 
     _slashKnife() {
@@ -408,17 +510,29 @@
       p.knifeSwing = 1.0;
       const dir = this.getLookDirection();
       const eyeY = p.y + (this.ui.input.crouch ? 1.05 : 1.56);
-      const hit = this.entities.raycastEnemies(p.x, eyeY, p.z, dir.x, dir.y, dir.z, 2.9);
-      window.SoundEngine.playKnifeSlash(!!hit);
-      if (hit && !this.world.isSafeZone(p.x, p.z)) {
-        const dmg = hit.isHeadshot ? 84 : 48;
-        hit.enemy.hp -= dmg;
-        hit.enemy.hitFlash = 0.2;
-        hit.enemy.bleedTimer = 4.0;
-        this.entities.spawnParticles(p.x + dir.x * hit.dist, eyeY + dir.y * hit.dist, p.z + dir.z * hit.dist, 12, [0.85, 0.1, 0.1, 1], 4, 0.45, 0.12, 8);
-        window.SoundEngine.playHitmarker(hit.isHeadshot);
-        this.ui.triggerHitmarker(hit.isHeadshot);
-        if (hit.enemy.hp <= 0) this.entities.onEnemyKilled(hit.enemy, hit.isHeadshot, this, 'Нож');
+      const hit = this.entities.raycastEnemies(p.x, eyeY, p.z, dir.x, dir.y, dir.z, 2.9, this.profile.faction);
+      const pvpHit = this.entities.raycastRemotePlayers(p.x, eyeY, p.z, dir.x, dir.y, dir.z, hit ? hit.dist : 2.9, this.profile.faction);
+      window.SoundEngine.playKnifeSlash(!!(hit || pvpHit));
+      if (!this.world.isSafeZone(p.x, p.z, this.profile.faction)) {
+        if (pvpHit) {
+          const dmg = pvpHit.isHeadshot ? 78 : 44;
+          pvpHit.remote.hitFlash = 0.25;
+          this.entities.spawnParticles(p.x + dir.x * pvpHit.dist, eyeY + dir.y * pvpHit.dist, p.z + dir.z * pvpHit.dist, 12, [0.85, 0.1, 0.1, 1], 4, 0.45, 0.12, 8);
+          window.SoundEngine.playHitmarker(pvpHit.isHeadshot);
+          this.ui.triggerHitmarker(pvpHit.isHeadshot);
+          if (window.AndroidBridge && window.AndroidBridge.sendPvpHit) {
+            try { window.AndroidBridge.sendPvpHit(this.profile.faction || 'stalker', pvpHit.remote.uid, dmg, !!pvpHit.isHeadshot, 'Нож'); } catch (_) {}
+          }
+        } else if (hit && hit.enemy) {
+          const dmg = hit.isHeadshot ? 84 : 48;
+          hit.enemy.hp -= dmg;
+          hit.enemy.hitFlash = 0.2;
+          hit.enemy.bleedTimer = 4.0;
+          this.entities.spawnParticles(p.x + dir.x * hit.dist, eyeY + dir.y * hit.dist, p.z + dir.z * hit.dist, 12, [0.85, 0.1, 0.1, 1], 4, 0.45, 0.12, 8);
+          window.SoundEngine.playHitmarker(hit.isHeadshot);
+          this.ui.triggerHitmarker(hit.isHeadshot);
+          if (hit.enemy.hp <= 0) this.entities.onEnemyKilled(hit.enemy, hit.isHeadshot, this, 'Нож');
+        }
       }
     }
 
@@ -457,8 +571,9 @@
         const ndx = dx / len, ndy = dy / len, ndz = dz / len;
 
         const wallT = this.engine.raycastWorld(p.x, eyeY, p.z, ndx, ndy, ndz, wpn.range);
-        const hit = this.entities.raycastEnemies(p.x, eyeY, p.z, ndx, ndy, ndz, wallT);
-        const endDist = hit ? hit.dist : wallT;
+        const hit = this.entities.raycastEnemies(p.x, eyeY, p.z, ndx, ndy, ndz, wallT, this.profile.faction);
+        const pvpHit = this.entities.raycastRemotePlayers(p.x, eyeY, p.z, ndx, ndy, ndz, hit ? hit.dist : wallT, this.profile.faction);
+        const endDist = pvpHit ? pvpHit.dist : (hit ? hit.dist : wallT);
 
         this.entities.addTracer(
           p.x + ndx * 0.65, eyeY - 0.08 + ndy * 0.65, p.z + ndz * 0.65,
@@ -466,7 +581,28 @@
           wpn.suppressed ? [0.7, 0.9, 1.0, 0.55] : [1.0, 0.86, 0.42, 0.9]
         );
 
-        if (hit) {
+        if (pvpHit) {
+          anyHit = true;
+          if (pvpHit.isHeadshot) anyHead = true;
+          pvpHit.remote.hitFlash = 0.25;
+          const hsMult = pvpHit.isHeadshot ? 1.65 : 1.0;
+          const pvpDmg = Math.max(4, Math.min(110, Math.round(wpn.damage * ammoCfg.dmgMult * hsMult * 0.72)));
+          this.entities.spawnParticles(p.x + ndx * pvpHit.dist, eyeY + ndy * pvpHit.dist, p.z + ndz * pvpHit.dist, pvpHit.isHeadshot ? 10 : 5, [0.92, 0.14, 0.14, 1], 3.5, 0.4, 0.11, 8);
+          if (window.AndroidBridge && window.AndroidBridge.sendPvpHit) {
+            try {
+              window.AndroidBridge.sendPvpHit(
+                this.profile.faction || 'stalker',
+                pvpHit.remote.uid,
+                pvpDmg,
+                !!pvpHit.isHeadshot,
+                wpn.name || wpn.id
+              );
+            } catch (_) {}
+          }
+          if (pel === 0) {
+            this.ui.addKillfeed(`🎯 Попадание по ${pvpHit.remote.name || 'Игроку'}${pvpHit.isHeadshot ? ' [ГОЛОВА]' : ''} (-${pvpDmg})`);
+          }
+        } else if (hit) {
           anyHit = true;
           const en = hit.enemy;
           const hsMult = hit.isHeadshot ? 1.75 : 1.0;
@@ -490,7 +626,19 @@
 
     _updateContaminationsAndVitals(dt, derived) {
       const p = this.player;
-      if (this.world.isSafeZone(p.x, p.z)) {
+      // Campfire warming & healing aura anywhere in the Zone!
+      p.nearCampfire = false;
+      for (const cf of this.world.campfires) {
+        if (Math.hypot(p.x - cf.x, p.z - cf.z) < 6.2) { p.nearCampfire = true; break; }
+      }
+      if (p.nearCampfire) {
+        p.hp = Math.min(100, p.hp + dt * 3.8);
+        p.stamina = Math.min(100, p.stamina + dt * 15);
+        p.contam.rad = Math.max(0, p.contam.rad - dt * 4.5);
+        p.contam.bio = Math.max(0, p.contam.bio - dt * 4.5);
+      }
+
+      if (this.world.isSafeZone(p.x, p.z, this.profile.faction)) {
         p.hp = Math.min(100, p.hp + dt * 12);
         p.bleeding = Math.max(0, p.bleeding - dt * 20);
         for (const k of ['rad', 'bio', 'therm', 'psy']) p.contam[k] = Math.max(0, p.contam[k] - dt * 22);
@@ -727,12 +875,15 @@
       const shakeX = (Math.random() - 0.5) * p.shake;
       const shakeY = (Math.random() - 0.5) * p.shake;
 
-      // Cinematic orbit over the glowing Bar campfire & truck behind the Start overlay!
+      // Cinematic orbit over active faction base campfire behind the Start overlay
+      const fac = window.GameData.FACTIONS[this.profile.faction] || window.GameData.FACTIONS.stalker;
+      const orbX = fac.id === 'bandit' ? -140.2 : 4.6;
+      const orbZ = fac.id === 'bandit' ? 80.2 : 2.2;
       const camYaw = this.started ? p.yaw + shakeX : (nowSec * 0.16);
       const camPitch = this.started ? p.pitch + shakeY : -0.14;
-      const camX = this.started ? p.x : 4.6 + Math.sin(nowSec * 0.16) * 11;
+      const camX = this.started ? p.x : orbX + Math.sin(nowSec * 0.16) * 11;
       const camY = this.started ? (p.y + eyeH) : 3.2;
-      const camZ = this.started ? p.z : 2.2 + Math.cos(nowSec * 0.16) * 11;
+      const camZ = this.started ? p.z : orbZ + Math.cos(nowSec * 0.16) * 11;
 
       const lights = this.entities.getDynamicPointLights(p, p.muzzleFlash);
       this.engine.beginFrame(camX, camY, camZ, camYaw, camPitch, fov, lights, nowSec);

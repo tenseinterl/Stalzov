@@ -1,6 +1,32 @@
-// STALZONE Game Database, Barter Trees, Upgrades & LocalStorage Persistence
+// STALZONE Game Database, Factions, Item Icons, Slot-Grid Inventory, Barter Trees & LocalStorage Persistence
 window.GameData = (function () {
-  const SAVE_KEY = 'stalzone_save_v1';
+  const SAVE_KEY = 'stalzone_save_v2';
+  const BACKPACK_SLOTS = 24;
+
+  const FACTIONS = {
+    stalker: {
+      id: 'stalker',
+      name: 'Сталкеры',
+      badge: 'СТАЛКЕРЫ',
+      baseName: 'База «Бар»',
+      spawnX: 2.0,
+      spawnZ: 7.4,
+      spawnYaw: -0.45,
+      color: '#5be07d',
+      desc: 'Вольные одиночки. База — укреплённый «Бар» в центре Зоны. Дружелюбны сталкерские патрули, враги — бандиты и наёмники.'
+    },
+    bandit: {
+      id: 'bandit',
+      name: 'Бандиты',
+      badge: 'БАНДИТЫ',
+      baseName: 'База «Депо»',
+      spawnX: -141.0,
+      spawnZ: 84.5,
+      spawnYaw: 0.45,
+      color: '#ff7a45',
+      desc: 'Братва с болот. База — железнодорожное «Депо» на юго-западе. Дружелюбны бандиты, враги — сталкеры и наёмники Севера.'
+    }
+  };
 
   const AMMO_TYPES = {
     fmj: { id: 'fmj', name: 'Обычные', short: 'ОБЫЧ', dmgMult: 1.0, apBonus: 0.0, mutantMult: 1.0, bleedChance: 0.12 },
@@ -63,40 +89,37 @@ window.GameData = (function () {
     jacket: {
       id: 'jacket', name: 'Куртка новичка', branch: 'Комбинированная', tier: 1, weight: 3.5,
       bulletRes: 18, radProt: 1, bioProt: 1, thermProt: 0, psyProt: 0, carryBonus: 0, speedBonus: 0.03,
-      desc: 'Простая сталкерская куртка. Защищает лишь от слабых окраинных заражений.'
+      desc: 'Простая куртка. Защищает лишь от слабых окраинных заражений.'
     },
-    // COMBAT BRANCH (Боевая)
     combat_1: {
       id: 'combat_1', name: 'Бронекостюм «Заря-Боец»', branch: 'Боевая', tier: 2, weight: 7.5,
       bulletRes: 42, radProt: 1, bioProt: 1, thermProt: 1, psyProt: 1, carryBonus: 6, speedBonus: -0.02,
-      desc: 'Усиленные бронепластины для перестрелок с бандитами и защиты от мутантов.'
+      desc: 'Усиленные бронепластины для перестрелок и защиты от мутантов.'
     },
     combat_2: {
       id: 'combat_2', name: 'Экзоброня «Центурион»', branch: 'Боевая', tier: 4, weight: 11.5,
       bulletRes: 68, radProt: 2, bioProt: 1, thermProt: 2, psyProt: 1, carryBonus: 18, speedBonus: -0.04,
-      desc: 'Тяжёлая штурмовая броня Севера. Максимум пулестойкости, но слаба в сильных заражениях.'
+      desc: 'Тяжёлая штурмовая броня Севера. Максимум пулестойкости.'
     },
-    // SCIENCE BRANCH (Научная)
     sci_1: {
       id: 'sci_1', name: 'Комбинезон «Эколог»', branch: 'Научная', tier: 2, weight: 5.5,
       bulletRes: 26, radProt: 3, bioProt: 3, thermProt: 2, psyProt: 2, carryBonus: 4, speedBonus: 0.0,
-      desc: 'Замкнутый цикл дыхания для добычи артефактов и вылазок в заражённые зоны.'
+      desc: 'Замкнутый цикл дыхания для добычи артефактов и вылазок в заражения.'
     },
     sci_2: {
       id: 'sci_2', name: 'Скафандр «Сатурн»', branch: 'Научная', tier: 4, weight: 7.0,
       bulletRes: 40, radProt: 4, bioProt: 4, thermProt: 4, psyProt: 4, carryBonus: 10, speedBonus: 0.02,
-      desc: 'Топовый научный скафандр. Полная защита от 3–4 уровней всех заражений Севера.'
+      desc: 'Топовый научный скафандр. Полная защита от 3–4 уровней всех заражений.'
     },
-    // COMBO BRANCH (Комбинированная)
     combo_1: {
       id: 'combo_1', name: 'Комбинезон «Скат-9»', branch: 'Комбинированная', tier: 2, weight: 6.5,
       bulletRes: 36, radProt: 2, bioProt: 2, thermProt: 2, psyProt: 2, carryBonus: 8, speedBonus: 0.0,
-      desc: 'Сбалансированный бронекостюм сталкера-ветерана для любых активностей.'
+      desc: 'Сбалансированный бронекостюм ветерана для любых активностей.'
     },
     combo_2: {
       id: 'combo_2', name: 'Бронекостюм «Туз»', branch: 'Комбинированная', tier: 4, weight: 8.5,
       bulletRes: 54, radProt: 3, bioProt: 3, thermProt: 3, psyProt: 3, carryBonus: 15, speedBonus: 0.01,
-      desc: 'Универсальный топовый костюм: достойная пулестойкость и проход почти во все зоны.'
+      desc: 'Универсальный топовый костюм: достойная пулестойкость и проход почти везде.'
     }
   };
 
@@ -107,95 +130,85 @@ window.GameData = (function () {
   };
 
   const DETECTORS = {
-    sak1: { id: 'sak1', name: 'Детектор САК-1', range: 26, revealDist: 7.5, signalSpeed: 1.0, tier: 1, weight: 0.6, desc: 'Базовый детектор артефактов и сканер сигналов.' },
-    buryat: { id: 'buryat', name: 'Детектор «Бурят»', range: 44, revealDist: 12.5, signalSpeed: 1.7, tier: 3, weight: 0.8, desc: 'Продвинутый детектор: дальний поиск артефактов и ускоренный скан сигналов.' }
+    sak1: { id: 'sak1', name: 'Детектор САК-1', range: 28, revealDist: 8.0, signalSpeed: 1.0, tier: 1, weight: 0.6, desc: 'Базовый детектор артефактов и сканер сигналов.' },
+    buryat: { id: 'buryat', name: 'Детектор «Бурят»', range: 48, revealDist: 13.5, signalSpeed: 1.7, tier: 3, weight: 0.8, desc: 'Продвинутый детектор: дальний поиск артефактов и ускоренный скан.' }
   };
 
   const ARTIFACTS = {
     medusa: {
-      id: 'medusa', name: 'Медуза', type: 'artifact', tier: 1, weight: 0.5, price: 2400, color: '#65e095',
+      id: 'medusa', name: 'Медуза', icon: '🟢', type: 'artifact', tier: 1, weight: 0.5, price: 2400, color: '#65e095',
       bonuses: { bulletRes: 5, hpRegen: 0.4 }, debuffs: { rad: 0.9 },
       desc: '+5 пулестойкости, +0.4 HP/с | +0.9 Рад/с'
     },
     stone_blood: {
-      id: 'stone_blood', name: 'Кровь камня', type: 'artifact', tier: 1, weight: 0.6, price: 2800, color: '#e64d45',
+      id: 'stone_blood', name: 'Кровь камня', icon: '🔴', type: 'artifact', tier: 1, weight: 0.6, price: 2800, color: '#e64d45',
       bonuses: { hpRegen: 1.1, carry: 3 }, debuffs: { bio: 1.0 },
       desc: '+1.1 HP/с, +3 кг веса | +1.0 Био/с'
     },
     flash: {
-      id: 'flash', name: 'Вспышка', type: 'artifact', tier: 2, weight: 0.5, price: 4600, color: '#45d0ff',
+      id: 'flash', name: 'Вспышка', icon: '💠', type: 'artifact', tier: 2, weight: 0.5, price: 4600, color: '#45d0ff',
       bonuses: { speed: 0.08, stamRegen: 6 }, debuffs: { rad: 1.4 },
       desc: '+8% скорости, +6 стамины/с | +1.4 Рад/с'
     },
     firefly: {
-      id: 'firefly', name: 'Светляк', type: 'artifact', tier: 3, weight: 0.6, price: 7800, color: '#9eff45',
+      id: 'firefly', name: 'Светляк', icon: '✨', type: 'artifact', tier: 3, weight: 0.6, price: 7800, color: '#9eff45',
       bonuses: { hpRegen: 2.2, stamRegen: 5 }, debuffs: { bio: 1.6, rad: 0.7 },
       desc: '+2.2 HP/с, +5 стамины/с | +1.6 Био, +0.7 Рад/с'
     },
     prism: {
-      id: 'prism', name: 'Призма', type: 'artifact', tier: 4, weight: 0.7, price: 12500, color: '#d473ff',
+      id: 'prism', name: 'Призма', icon: '🔮', type: 'artifact', tier: 4, weight: 0.7, price: 12500, color: '#d473ff',
       bonuses: { bulletRes: 12, carry: 7 }, debuffs: { psy: 1.7, rad: 0.8 },
       desc: '+12 пулестойкости, +7 кг | +1.7 Пси, +0.8 Рад/с'
     },
     snowflake: {
-      id: 'snowflake', name: 'Снежинка', type: 'artifact', tier: 3, weight: 0.5, price: 8900, color: '#a8f2ff',
+      id: 'snowflake', name: 'Снежинка', icon: '❄️', type: 'artifact', tier: 3, weight: 0.5, price: 8900, color: '#a8f2ff',
       bonuses: { speed: 0.12, carry: 6, stamRegen: 9 }, debuffs: { rad: 1.8 },
       desc: '+12% скорости, +6 кг, +9 стамины/с | +1.8 Рад/с'
     }
   };
 
   const ITEMS = {
-    // Consumables
-    medkit:   { id: 'medkit', name: 'Аптечка АИ-2', type: 'consumable', weight: 0.4, price: 450, tier: 1, desc: 'Постепенно восстанавливает 55 HP за 5 сек.' },
-    bandage:  { id: 'bandage', name: 'Бинт армейский', type: 'consumable', weight: 0.15, price: 200, tier: 1, desc: 'Мгновенно останавливает кровотечение и лечит 10 HP.' },
-    antirad:  { id: 'antirad', name: 'Антирад', type: 'consumable', weight: 0.2, price: 380, tier: 1, desc: 'Снимает 65 ед. радиации и снижает биозаражение.' },
-    energy:   { id: 'energy', name: 'Энергетик «Зона»', type: 'consumable', weight: 0.3, price: 260, tier: 1, desc: 'Восстанавливает стамину и ускоряет её реген на 25 сек.' },
-    grenade:  { id: 'grenade', name: 'Граната РГД-5', type: 'consumable', weight: 0.35, price: 520, tier: 2, desc: 'Осколочная граната. Радиус поражения 9 м.' },
+    medkit:   { id: 'medkit', name: 'Аптечка АИ-2', short: 'АИ-2', icon: '✚', type: 'consumable', weight: 0.4, price: 450, tier: 1, desc: 'Постепенно восстанавливает 55 HP за 5 сек.' },
+    bandage:  { id: 'bandage', name: 'Бинт армейский', short: 'Бинт', icon: '🩹', type: 'consumable', weight: 0.15, price: 200, tier: 1, desc: 'Мгновенно останавливает кровотечение и лечит 12 HP.' },
+    antirad:  { id: 'antirad', name: 'Антирад', short: 'Антирад', icon: '💊', type: 'consumable', weight: 0.2, price: 380, tier: 1, desc: 'Снимает 68 ед. радиации и снижает биозаражение.' },
+    energy:   { id: 'energy', name: 'Энергетик «Зона»', short: 'Энерг.', icon: '⚡', type: 'consumable', weight: 0.3, price: 260, tier: 1, desc: 'Восстанавливает стамину и ускоряет её реген на 25 сек.' },
+    grenade:  { id: 'grenade', name: 'Граната РГД-5', short: 'РГД-5', icon: '💣', type: 'consumable', weight: 0.35, price: 520, tier: 2, desc: 'Осколочная граната. Радиус поражения 9 м.' },
 
-    // Ammo packs
-    ammo_fmj: { id: 'ammo_fmj', name: 'Патроны (Обычные)', type: 'ammo', ammoType: 'fmj', weight: 0.015, price: 12, tier: 1, desc: 'Стандартные боеприпасы.' },
-    ammo_ap:  { id: 'ammo_ap',  name: 'Патроны (ББ)', type: 'ammo', ammoType: 'ap', weight: 0.018, price: 24, tier: 2, desc: 'Бронебойные патроны: игнорируют 45% пулестойкости.' },
-    ammo_exp: { id: 'ammo_exp', name: 'Патроны (Эксп.)', type: 'ammo', ammoType: 'exp', weight: 0.016, price: 20, tier: 2, desc: 'Экспансивные: +38% урона по мутантам и кровотечение.' },
+    ammo_fmj: { id: 'ammo_fmj', name: 'Патроны (Обыч.)', short: 'Патр.ОБ', icon: '🔸', type: 'ammo', ammoType: 'fmj', weight: 0.015, price: 12, tier: 1, desc: 'Стандартные боеприпасы.' },
+    ammo_ap:  { id: 'ammo_ap',  name: 'Патроны (ББ)', short: 'Патр.ББ', icon: '🔷', type: 'ammo', ammoType: 'ap', weight: 0.018, price: 24, tier: 2, desc: 'Бронебойные: игнорируют 45% пулестойкости.' },
+    ammo_exp: { id: 'ammo_exp', name: 'Патроны (Эксп.)', short: 'Патр.ЭК', icon: '🔺', type: 'ammo', ammoType: 'exp', weight: 0.016, price: 20, tier: 2, desc: 'Экспансивные: +38% урона по мутантам и кровотечение.' },
 
-    // Attachments
-    att_optic: { id: 'att_optic', name: 'Коллиматор / Оптика', type: 'attachment', attKey: 'optic', weight: 0.35, price: 2200, tier: 2, desc: 'Улучшает точность в прицеле и добавляет оптический зум.' },
-    att_sup:   { id: 'att_sup',   name: 'Глушитель ПБС', type: 'attachment', attKey: 'suppressor', weight: 0.4, price: 2600, tier: 2, desc: 'Снижает звук выстрела, вспышку и вертикальную отдачу.' },
-    att_mag:   { id: 'att_mag',   name: 'Увеличенный магазин', type: 'attachment', attKey: 'extMag', weight: 0.3, price: 2000, tier: 2, desc: '+40% патронов в магазине.' },
-    att_laser: { id: 'att_laser', name: 'ЛЦУ тактический', type: 'attachment', attKey: 'laser', weight: 0.2, price: 1800, tier: 2, desc: 'Снижает разброс от бедра на 35% и проецирует луч.' },
+    att_optic: { id: 'att_optic', name: 'Коллиматор / Оптика', short: 'Оптика', icon: '🎯', type: 'attachment', attKey: 'optic', weight: 0.35, price: 2200, tier: 2, desc: 'Улучшает точность в прицеле и добавляет коллиматор/оптику.' },
+    att_sup:   { id: 'att_sup',   name: 'Глушитель ПБС', short: 'Глушит.', icon: '🔇', type: 'attachment', attKey: 'suppressor', weight: 0.4, price: 2600, tier: 2, desc: 'Снижает звук выстрела, вспышку и вертикальную отдачу.' },
+    att_mag:   { id: 'att_mag',   name: 'Увеличенный маг.', short: 'Ув.маг', icon: '📦', type: 'attachment', attKey: 'extMag', weight: 0.3, price: 2000, tier: 2, desc: '+40% патронов в магазине.' },
+    att_laser: { id: 'att_laser', name: 'ЛЦУ тактический', short: 'ЛЦУ', icon: '🔴', type: 'attachment', attKey: 'laser', weight: 0.2, price: 1800, tier: 2, desc: 'Снижает разброс от бедра на 35%.' },
 
-    // Upgrade tools
-    tools:     { id: 'tools', name: 'Инструменты / Запаски', type: 'tool', weight: 0.6, price: 1400, tier: 2, desc: 'Используется у Механика для заточки оружия и брони (+1..+15).' },
+    tools:     { id: 'tools', name: 'Инструменты / Запаски', short: 'Запаски', icon: '🔧', type: 'tool', weight: 0.6, price: 1400, tier: 2, desc: 'Для заточки оружия и брони (+1..+15) у Механика.' },
 
-    // Barter Resources
-    res_moss:   { id: 'res_moss', name: 'Болотный мох', type: 'barter', weight: 0.25, price: 320, tier: 1, desc: 'Бартерный ресурс Южных болот.' },
-    res_root:   { id: 'res_root', name: 'Корень-вонючка', type: 'barter', weight: 0.25, price: 360, tier: 1, desc: 'Бартерный ресурс с логов мутантов Окраин.' },
-    res_radio:  { id: 'res_radio', name: 'Остатки радиопередатчика', type: 'barter', weight: 0.35, price: 680, tier: 2, desc: 'Технический бартер из сигналов САК и Промзоны.' },
-    res_data:   { id: 'res_data', name: 'Фрагменты данных', type: 'barter', weight: 0.2, price: 1100, tier: 3, desc: 'Редкие данные из НИИ и Протоаномалий Севера.' },
+    res_moss:   { id: 'res_moss', name: 'Болотный мох', short: 'Мох', icon: '🌿', type: 'barter', weight: 0.25, price: 320, tier: 1, desc: 'Бартерный ресурс Южных болот.' },
+    res_root:   { id: 'res_root', name: 'Корень-вонючка', short: 'Корень', icon: '🌱', type: 'barter', weight: 0.25, price: 360, tier: 1, desc: 'Бартерный ресурс с логов мутантов.' },
+    res_radio:  { id: 'res_radio', name: 'Радиодетали', short: 'Радио', icon: '📻', type: 'barter', weight: 0.35, price: 680, tier: 2, desc: 'Технический бартер из сигналов САК и Промзоны.' },
+    res_data:   { id: 'res_data', name: 'Фрагменты данных', short: 'Данные', icon: '💾', type: 'barter', weight: 0.2, price: 1100, tier: 3, desc: 'Редкие данные из НИИ, РЛС «Дуга» и Протоаномалий.' },
 
-    // Mutant parts & vendor loot
-    part_dog:    { id: 'part_dog', name: 'Хвост слепого пса', type: 'sellable', weight: 0.3, price: 520, tier: 1, desc: 'Ценится Скупщиком в Баре.' },
-    part_boar:   { id: 'part_boar', name: 'Копыто кабана', type: 'sellable', weight: 0.6, price: 880, tier: 2, desc: 'Трофей мутанта. Продайте Скупщику.' },
-    part_blood:  { id: 'part_blood', name: 'Щупальца кровососа', type: 'sellable', weight: 0.5, price: 2400, tier: 3, desc: 'Редкий трофей Севера. Высокая цена у Скупщика.' },
-    loot_pda:    { id: 'loot_pda', name: 'Зашифрованный ПДА', type: 'sellable', weight: 0.25, price: 1500, tier: 2, desc: 'Трофей с враждебного сталкера/бандита.' },
+    part_dog:    { id: 'part_dog', name: 'Хвост пса', short: 'Хвост', icon: '🐾', type: 'sellable', weight: 0.3, price: 520, tier: 1, desc: 'Трофей мутанта. Продайте Скупщику.' },
+    part_boar:   { id: 'part_boar', name: 'Копыто кабана', short: 'Копыто', icon: '🐗', type: 'sellable', weight: 0.6, price: 880, tier: 2, desc: 'Трофей мутанта. Продайте Скупщику.' },
+    part_blood:  { id: 'part_blood', name: 'Щупальца кровососа', short: 'Щупальц.', icon: '🦑', type: 'sellable', weight: 0.5, price: 2400, tier: 3, desc: 'Редкий трофей Севера. Высокая цена у Скупщику.' },
+    loot_pda:    { id: 'loot_pda', name: 'Зашифрованный ПДА', short: 'ПДА', icon: '📱', type: 'sellable', weight: 0.25, price: 1500, tier: 2, desc: 'Трофей с вражеского сталкера или бандита.' },
 
     ...ARTIFACTS
   };
 
-  // Barter recipes at Barter NPC
   const BARTER_RECIPES = [
-    // Weapons
     { id: 'b_saiga', resultType: 'weapon', resultId: 'saiga12', name: 'Сайга-12К', reqItem: 'ak74m', cost: 4500, reqRes: { res_moss: 4, res_root: 3 } },
     { id: 'b_val',   resultType: 'weapon', resultId: 'as_val',  name: 'АС «Вал»', reqItem: 'ak74m', cost: 11000, reqRes: { res_radio: 5, res_data: 3 } },
     { id: 'b_vss',   resultType: 'weapon', resultId: 'vss',     name: 'ВСС «Винторез»', reqItem: 'as_val', cost: 15000, reqRes: { res_radio: 6, res_data: 6 } },
     { id: 'b_svd',   resultType: 'weapon', resultId: 'svd',     name: 'СВД', reqItem: 'ak74m', cost: 21000, reqRes: { res_radio: 8, res_data: 8 } },
-    // Armors
     { id: 'b_comb1', resultType: 'armor', resultId: 'combat_1', name: 'Заря-Боец (Боевая)', reqItem: 'jacket', cost: 4000, reqRes: { res_moss: 5, res_root: 4 } },
     { id: 'b_comb2', resultType: 'armor', resultId: 'combat_2', name: 'Центурион (Боевая)', reqItem: 'combat_1', cost: 19000, reqRes: { res_radio: 7, res_data: 8 } },
     { id: 'b_sci1',  resultType: 'armor', resultId: 'sci_1',    name: 'Эколог (Научная)', reqItem: 'jacket', cost: 4200, reqRes: { res_moss: 6, res_radio: 2 } },
     { id: 'b_sci2',  resultType: 'armor', resultId: 'sci_2',    name: 'Сатурн (Научная)', reqItem: 'sci_1', cost: 20000, reqRes: { res_radio: 6, res_data: 9 } },
     { id: 'b_cbo1',  resultType: 'armor', resultId: 'combo_1',  name: 'Скат-9 (Комбо)', reqItem: 'jacket', cost: 4800, reqRes: { res_moss: 4, res_root: 4, res_radio: 2 } },
     { id: 'b_cbo2',  resultType: 'armor', resultId: 'combo_2',  name: 'Туз (Комбо)', reqItem: 'combo_1', cost: 18500, reqRes: { res_radio: 7, res_data: 7 } },
-    // Containers & Detectors
     { id: 'b_ber3',  resultType: 'container', resultId: 'berloga3', name: 'Контейнер Берлога-3', reqItem: 'kzs2', cost: 5500, reqRes: { res_moss: 4, res_radio: 3 } },
     { id: 'b_ber4',  resultType: 'container', resultId: 'berloga4', name: 'Контейнер Берлога-4u', reqItem: 'berloga3', cost: 14000, reqRes: { res_radio: 6, res_data: 5 } },
     { id: 'b_bur',   resultType: 'detector',  resultId: 'buryat',   name: 'Детектор «Бурят»', reqItem: 'sak1', cost: 9500, reqRes: { res_radio: 6, res_data: 4 } }
@@ -219,29 +232,20 @@ window.GameData = (function () {
 
   const DEFAULT_QUESTS = [
     { id: 'q_dogs', title: 'Зачистка Южных болот', desc: 'Уничтожьте 4 мутантов на Окраинах', type: 'kill_mutant', target: 4, progress: 0, rewardMoney: 3500, rewardItem: 'res_moss', rewardCount: 4, claimed: false },
-    { id: 'q_bandits', title: 'Охота на мародёров', desc: 'Ликвидируйте 3 враждебных бандитов/сталкеров', type: 'kill_human', target: 3, progress: 0, rewardMoney: 5500, rewardItem: 'res_radio', rewardCount: 3, claimed: false },
+    { id: 'q_bandits', title: 'Фракционная зачистка', desc: 'Ликвидируйте 3 бойцов вражеской фракции', type: 'kill_human', target: 3, progress: 0, rewardMoney: 5500, rewardItem: 'res_radio', rewardCount: 3, claimed: false },
     { id: 'q_art', title: 'Дары Зоны', desc: 'Найдите детектором и подберите 2 артефакта', type: 'pickup_art', target: 2, progress: 0, rewardMoney: 6000, rewardItem: 'tools', rewardCount: 2, claimed: false },
     { id: 'q_signal', title: 'Перехват частоты', desc: 'Найдите 1 тайник через сканирование сигнала САК', type: 'find_signal', target: 1, progress: 0, rewardMoney: 5000, rewardItem: 'res_radio', rewardCount: 4, claimed: false },
     { id: 'q_proto', title: 'Разрядка Протоаномалии', desc: 'Завершите зарядку 1 Протоаномалии', type: 'clear_proto', target: 1, progress: 0, rewardMoney: 9500, rewardItem: 'res_data', rewardCount: 4, claimed: false }
   ];
 
-  function createDefaultProfile() {
+  function createDefaultProfile(faction = 'stalker') {
     return {
+      faction: FACTIONS[faction] ? faction : 'stalker',
+      callsign: 'Сталкер-' + Math.floor(100 + Math.random() * 899),
       money: 5000,
       reputation: 0,
-      equipment: {
-        primary: 'ak74m',
-        secondary: 'pm',
-        armor: 'jacket',
-        container: 'kzs2',
-        detector: 'sak1'
-      },
-      ownedGear: {
-        weapons: ['ak74m', 'pm'],
-        armors: ['jacket'],
-        containers: ['kzs2'],
-        detectors: ['sak1']
-      },
+      equipment: { primary: 'ak74m', secondary: 'pm', armor: 'jacket', container: 'kzs2', detector: 'sak1' },
+      ownedGear: { weapons: ['ak74m', 'pm'], armors: ['jacket'], containers: ['kzs2'], detectors: ['sak1'] },
       upgrades: {
         ak74m: 0, pm: 0, saiga12: 0, as_val: 0, vss: 0, svd: 0,
         jacket: 0, combat_1: 0, combat_2: 0, sci_1: 0, sci_2: 0, combo_1: 0, combo_2: 0
@@ -250,30 +254,23 @@ window.GameData = (function () {
       attachmentsEnabled: { optic: false, suppressor: false, extMag: false, laser: false },
       containerArtifacts: ['medusa'],
       backpack: [
-        { id: 'medkit', count: 3 },
-        { id: 'bandage', count: 4 },
-        { id: 'antirad', count: 2 },
-        { id: 'energy', count: 2 },
-        { id: 'grenade', count: 2 },
-        { id: 'ammo_fmj', count: 120 },
-        { id: 'ammo_ap', count: 30 },
-        { id: 'ammo_exp', count: 30 },
-        { id: 'tools', count: 1 }
+        { id: 'medkit', count: 3, slot: 0 },
+        { id: 'bandage', count: 4, slot: 1 },
+        { id: 'antirad', count: 2, slot: 2 },
+        { id: 'energy', count: 2, slot: 3 },
+        { id: 'grenade', count: 2, slot: 4 },
+        { id: 'ammo_fmj', count: 120, slot: 5 },
+        { id: 'ammo_ap', count: 30, slot: 6 },
+        { id: 'ammo_exp', count: 30, slot: 7 },
+        { id: 'tools', count: 1, slot: 8 }
       ],
       stash: [
-        { id: 'medkit', count: 3 },
-        { id: 'ammo_fmj', count: 90 },
-        { id: 'res_moss', count: 2 }
+        { id: 'medkit', count: 3, slot: 0 },
+        { id: 'ammo_fmj', count: 90, slot: 1 },
+        { id: 'res_moss', count: 2, slot: 2 }
       ],
       quests: JSON.parse(JSON.stringify(DEFAULT_QUESTS)),
-      stats: {
-        killsMutant: 0,
-        killsHuman: 0,
-        headshots: 0,
-        artifactsFound: 0,
-        emissionsSurvived: 0,
-        deaths: 0
-      },
+      stats: { killsMutant: 0, killsHuman: 0, headshots: 0, artifactsFound: 0, emissionsSurvived: 0, deaths: 0 },
       settings: {
         sensitivity: 1.0,
         volume: 0.75,
@@ -282,15 +279,34 @@ window.GameData = (function () {
     };
   }
 
+  function ensureSlots(list, maxSlots = BACKPACK_SLOTS) {
+    const used = new Set();
+    for (const item of list) {
+      if (typeof item.slot === 'number' && item.slot >= 0 && item.slot < maxSlots && !used.has(item.slot)) {
+        used.add(item.slot);
+      } else {
+        item.slot = -1;
+      }
+    }
+    for (const item of list) {
+      if (item.slot === -1) {
+        for (let s = 0; s < maxSlots; s++) {
+          if (!used.has(s)) { item.slot = s; used.add(s); break; }
+        }
+      }
+    }
+  }
+
   function loadProfile() {
     try {
-      const raw = localStorage.getItem(SAVE_KEY);
+      const raw = localStorage.getItem(SAVE_KEY) || localStorage.getItem('stalzone_save_v1');
       if (!raw) return createDefaultProfile();
       const parsed = JSON.parse(raw);
-      const def = createDefaultProfile();
-      return {
+      const def = createDefaultProfile(parsed.faction || 'stalker');
+      const prof = {
         ...def,
         ...parsed,
+        faction: FACTIONS[parsed.faction] ? parsed.faction : 'stalker',
         equipment: { ...def.equipment, ...(parsed.equipment || {}) },
         ownedGear: { ...def.ownedGear, ...(parsed.ownedGear || {}) },
         upgrades: { ...def.upgrades, ...(parsed.upgrades || {}) },
@@ -299,41 +315,97 @@ window.GameData = (function () {
         stats: { ...def.stats, ...(parsed.stats || {}) },
         settings: { ...def.settings, ...(parsed.settings || {}) }
       };
+      ensureSlots(prof.backpack, BACKPACK_SLOTS);
+      ensureSlots(prof.stash, BACKPACK_SLOTS);
+      return prof;
     } catch (_) {
       return createDefaultProfile();
     }
   }
 
   function saveProfile(profile) {
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(profile)); } catch (_) {}
+  }
+
+  function resetProfile(faction = 'stalker') {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(profile));
+      localStorage.removeItem(SAVE_KEY);
+      localStorage.removeItem('stalzone_save_v1');
     } catch (_) {}
+    return createDefaultProfile(faction);
   }
 
-  function resetProfile() {
-    try { localStorage.removeItem(SAVE_KEY); } catch (_) {}
-    return createDefaultProfile();
+  function findFirstFreeSlot(list, maxSlots = BACKPACK_SLOTS) {
+    const used = new Set(list.map(i => i.slot));
+    for (let s = 0; s < maxSlots; s++) if (!used.has(s)) return s;
+    return list.length;
   }
 
-  function addItemToList(list, itemId, count) {
+  function addItemToList(list, itemId, count, preferredSlot = null, maxSlots = BACKPACK_SLOTS) {
     if (count <= 0) return;
+    if (preferredSlot !== null) {
+      const atSlot = list.find(e => e.slot === preferredSlot);
+      if (atSlot && atSlot.id === itemId) { atSlot.count += count; return; }
+      if (!atSlot) { list.push({ id: itemId, count, slot: preferredSlot }); return; }
+    }
     const existing = list.find(e => e.id === itemId);
     if (existing) existing.count += count;
-    else list.push({ id: itemId, count });
+    else list.push({ id: itemId, count, slot: findFirstFreeSlot(list, maxSlots) });
   }
 
   function removeItemFromList(list, itemId, count) {
-    const idx = list.findIndex(e => e.id === itemId);
-    if (idx === -1) return false;
-    if (list[idx].count < count) return false;
-    list[idx].count -= count;
-    if (list[idx].count <= 0) list.splice(idx, 1);
-    return true;
+    let rem = count;
+    for (let i = list.length - 1; i >= 0 && rem > 0; i--) {
+      if (list[i].id !== itemId) continue;
+      const take = Math.min(list[i].count, rem);
+      list[i].count -= take;
+      rem -= take;
+      if (list[i].count <= 0) list.splice(i, 1);
+    }
+    return rem === 0;
   }
 
   function countItem(list, itemId) {
-    const e = list.find(i => i.id === itemId);
-    return e ? e.count : 0;
+    let total = 0;
+    for (const i of list) if (i.id === itemId) total += i.count;
+    return total;
+  }
+
+  function moveBetweenSlots(srcList, srcSlot, dstList, dstSlot, amount = null) {
+    const srcIdx = srcList.findIndex(e => e.slot === srcSlot);
+    if (srcIdx === -1) return false;
+    const srcItem = srcList[srcIdx];
+    if (srcList === dstList && srcSlot === dstSlot) return false;
+
+    const moveQty = amount ? Math.min(amount, srcItem.count) : srcItem.count;
+    const dstIdx = dstList.findIndex(e => e.slot === dstSlot);
+
+    if (dstIdx === -1) {
+      if (moveQty >= srcItem.count) {
+        srcList.splice(srcIdx, 1);
+        dstList.push({ id: srcItem.id, count: srcItem.count, slot: dstSlot });
+      } else {
+        srcItem.count -= moveQty;
+        dstList.push({ id: srcItem.id, count: moveQty, slot: dstSlot });
+      }
+      return true;
+    }
+
+    const dstItem = dstList[dstIdx];
+    if (dstItem.id === srcItem.id) {
+      dstItem.count += moveQty;
+      srcItem.count -= moveQty;
+      if (srcItem.count <= 0) srcList.splice(srcIdx, 1);
+      return true;
+    }
+
+    if (moveQty >= srcItem.count) {
+      const tmpId = dstItem.id, tmpCount = dstItem.count;
+      dstItem.id = srcItem.id; dstItem.count = srcItem.count;
+      srcItem.id = tmpId; srcItem.count = tmpCount;
+      return true;
+    }
+    return false;
   }
 
   function getWeaponStats(profile, weaponId) {
@@ -387,7 +459,6 @@ window.GameData = (function () {
       if (a.debuffs.psy) artPsy += a.debuffs.psy * protMult;
     }
 
-    // Current carried weight
     let weight = armor.weight + cont.weight;
     const pWpn = WEAPONS[profile.equipment.primary];
     const sWpn = WEAPONS[profile.equipment.secondary];
@@ -404,29 +475,19 @@ window.GameData = (function () {
     }
 
     return {
-      armor,
-      armorLvl,
-      container: cont,
-      detector: det || DETECTORS.sak1,
+      armor, armorLvl, container: cont, detector: det || DETECTORS.sak1,
       bulletRes: Math.min(85, bulletRes),
-      radProt: armor.radProt,
-      bioProt: armor.bioProt,
-      thermProt: armor.thermProt,
-      psyProt: armor.psyProt,
-      maxWeight,
-      weight,
-      speedMult,
-      hpRegen,
-      stamRegenBonus,
+      radProt: armor.radProt, bioProt: armor.bioProt, thermProt: armor.thermProt, psyProt: armor.psyProt,
+      maxWeight, weight, speedMult, hpRegen, stamRegenBonus,
       artDebuffs: { rad: artRad, bio: artBio, therm: artTherm, psy: artPsy }
     };
   }
 
   return {
-    AMMO_TYPES, WEAPONS, ARMORS, CONTAINERS, DETECTORS, ARTIFACTS, ITEMS,
+    BACKPACK_SLOTS, FACTIONS, AMMO_TYPES, WEAPONS, ARMORS, CONTAINERS, DETECTORS, ARTIFACTS, ITEMS,
     BARTER_RECIPES, TRADER_CATALOG, DEFAULT_QUESTS,
     createDefaultProfile, loadProfile, saveProfile, resetProfile,
-    addItemToList, removeItemFromList, countItem,
+    ensureSlots, addItemToList, removeItemFromList, countItem, moveBetweenSlots,
     getWeaponStats, getPlayerDerivedStats
   };
 })();
