@@ -36,7 +36,7 @@ window.GameUI = (function () {
         $('hud').classList.remove('hidden');
         this.game.started = true;
         this.applySettingsUI();
-        this.game.toast('Добро пожаловать в Бар! Выйдите через ворота на Юг или Север.', 'good');
+        this.game.toast('Добро пожаловать в Бар! Осмотритесь у костра или выходите в Болота.', 'good');
       };
 
       $('btn-reset-save').onclick = () => {
@@ -159,6 +159,7 @@ window.GameUI = (function () {
         if (code === 'KeyT') this.game.cycleAmmoType();
         if (code === 'Digit1') this.game.selectWeaponSlot('primary');
         if (code === 'Digit2') this.game.selectWeaponSlot('secondary');
+        if (code === 'Digit3') this.game.selectWeaponSlot('melee');
         if (code === 'Digit5') this.game.useQuickSlot(5);
         if (code === 'Digit6') this.game.useQuickSlot(6);
         if (code === 'Digit7') this.game.useQuickSlot(7);
@@ -209,12 +210,13 @@ window.GameUI = (function () {
           if (this.touchState.joyId === null) {
             this.touchState.joyId = t.identifier;
             const rect = leftZone.getBoundingClientRect();
-            const bx = Math.max(58, Math.min(rect.width - 58, t.clientX - rect.left));
-            const by = Math.max(58, Math.min(rect.height - 58, t.clientY - rect.top));
+            const bx = Math.max(54, Math.min(rect.width - 54, t.clientX - rect.left));
+            const by = Math.max(54, Math.min(rect.height - 54, t.clientY - rect.top));
             this.touchState.joyOx = t.clientX;
             this.touchState.joyOy = t.clientY;
-            joyBase.style.left = (bx - 52) + 'px';
-            joyBase.style.top = (by - 52) + 'px';
+            joyBase.classList.remove('idle');
+            joyBase.style.left = (bx - 48) + 'px';
+            joyBase.style.top = (by - 48) + 'px';
             joyBase.style.bottom = 'auto';
           }
         }
@@ -226,7 +228,7 @@ window.GameUI = (function () {
           if (t.identifier === this.touchState.joyId) {
             const dx = t.clientX - this.touchState.joyOx;
             const dy = t.clientY - this.touchState.joyOy;
-            const maxR = 46;
+            const maxR = 44;
             const dist = Math.hypot(dx, dy);
             const cl = Math.min(maxR, dist);
             const ang = Math.atan2(dy, dx);
@@ -235,7 +237,7 @@ window.GameUI = (function () {
             joyKnob.style.transform = `translate(${kx}px, ${ky}px)`;
             this.input.moveX = kx / maxR;
             this.input.moveZ = -ky / maxR; // up = forward (+1)
-            const sprinting = (-dy > 58 && Math.abs(dx) < 42);
+            const sprinting = (-dy > 54 && Math.abs(dx) < 42);
             this.input.sprint = sprinting;
             sprintInd.classList.toggle('active', sprinting);
           }
@@ -250,6 +252,7 @@ window.GameUI = (function () {
             this.input.moveZ = 0;
             this.input.sprint = false;
             joyKnob.style.transform = 'translate(0px, 0px)';
+            joyBase.classList.add('idle');
             sprintInd.classList.remove('active');
           }
         }
@@ -347,6 +350,7 @@ window.GameUI = (function () {
 
       $('tbtn-wpn1').onclick = () => this.game.selectWeaponSlot('primary');
       $('tbtn-wpn2').onclick = () => this.game.selectWeaponSlot('secondary');
+      $('tbtn-knife').onclick = () => this.game.selectWeaponSlot('melee');
       $('tbtn-bolt').onclick = () => this.game.throwBoltAction();
       $('tbtn-det').onclick = () => this.game.toggleDetector();
     }
@@ -458,12 +462,13 @@ window.GameUI = (function () {
       $('val-weight').textContent = `${derived.weight.toFixed(1)}/${derived.maxWeight.toFixed(0)} кг`;
       $('val-weight').classList.toggle('over', wOver);
 
-      // 4 Contaminations
+      // 4 Contaminations (auto-dim when 0)
       const keys = ['rad', 'bio', 'therm', 'psy'];
       for (const k of keys) {
         const v = Math.round(p.contam[k]);
         $('bar-' + k).style.width = Math.min(100, v) + '%';
         $('val-' + k).textContent = v;
+        $('chip-' + k).classList.toggle('active', v > 0);
       }
 
       // Screen-space contamination & status FX
@@ -477,15 +482,16 @@ window.GameUI = (function () {
         ? (0.35 + Math.sin(performance.now() * 0.01) * 0.15) : 0;
 
       // Weapon panel
+      const isMelee = !p.holdingDetector && p.activeSlot === 'melee';
       const magState = p.mags[wpn.id] ?? wpn.mag;
       const ammoItemId = 'ammo_' + p.ammoType;
       const reserve = window.GameData.countItem(g.profile.backpack, ammoItemId);
       $('hud-wpn-name').textContent = p.holdingDetector ? derived.detector.name : wpn.name;
-      $('hud-wpn-tier').textContent = '+' + (wpn.level || 0);
-      $('hud-ammo-mag').textContent = magState;
-      $('hud-ammo-res').textContent = reserve;
-      $('btn-ammo-type').textContent = window.GameData.AMMO_TYPES[p.ammoType].short + ' [T]';
-      $('btn-fire-mode').textContent = (p.fireMode === 'auto' ? 'АВТО' : 'ОДИН') + ' [V]';
+      $('hud-wpn-tier').textContent = isMelee ? 'БЛИЖ' : (p.holdingDetector ? 'САК' : ('+' + (wpn.level || 0)));
+      $('hud-ammo-mag').textContent = isMelee || p.holdingDetector ? '—' : magState;
+      $('hud-ammo-res').textContent = isMelee || p.holdingDetector ? '∞' : reserve;
+      $('btn-ammo-type').textContent = isMelee ? 'НОЖ' : window.GameData.AMMO_TYPES[p.ammoType].short;
+      $('btn-fire-mode').textContent = isMelee ? 'УДАР' : (p.fireMode === 'auto' ? 'АВТО' : 'ОДИН');
 
       // Quick slot counts
       $('q-medkit').textContent = window.GameData.countItem(g.profile.backpack, 'medkit');
@@ -494,10 +500,12 @@ window.GameUI = (function () {
       $('q-energy').textContent = window.GameData.countItem(g.profile.backpack, 'energy');
       $('q-grenade').textContent = window.GameData.countItem(g.profile.backpack, 'grenade');
 
-      // Utility active states
+      // Utility & ADS active states
       $('tbtn-wpn1').classList.toggle('active', !p.holdingDetector && p.activeSlot === 'primary');
       $('tbtn-wpn2').classList.toggle('active', !p.holdingDetector && p.activeSlot === 'secondary');
+      $('tbtn-knife').classList.toggle('active', isMelee);
       $('tbtn-det').classList.toggle('active', p.holdingDetector);
+      $('tbtn-ads').classList.toggle('active', this.input.ads);
 
       // Clock, Weather, Money, Region
       $('hud-clock').textContent = g.world.getFormattedClock();
@@ -532,8 +540,8 @@ window.GameUI = (function () {
       const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
       $('compass-bar').textContent = dirs[Math.round(deg / 45) % 8] + ' ' + String(Math.round(deg)).padStart(3, '0') + '°';
 
-      // Crosshair spread & ADS optic scope
-      const showScope = p.adsBlend > 0.72 && wpn.hasOptic && !p.holdingDetector;
+      // Crosshair spread & ADS optic scope (AK-74M uses 3D translucent EOTech holo sight!)
+      const showScope = p.adsBlend > 0.72 && wpn.hasOptic && wpn.id !== 'ak74m' && !p.holdingDetector;
       $('scope-overlay').classList.toggle('hidden', !showScope);
       $('crosshair').classList.toggle('hidden', p.adsBlend > 0.4 || p.holdingDetector);
       const spreadPx = Math.round(6 + p.currentSpread * 420);

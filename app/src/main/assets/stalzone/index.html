@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>STALZONE — Voxel Extraction Shooter</title>
+  <title>STALZONE — Twilight Swamps Edition</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -31,63 +31,61 @@
   <!-- START / DEPLOY OVERLAY -->
   <div id="start-overlay">
     <div class="start-card">
-      <div class="start-badge">ЧЕРНОБЫЛЬСКАЯ ЗОНА ОТЧУЖДЕНИЯ // СЕКТОР Х</div>
+      <div class="start-badge">ЧЕРНОБЫЛЬСКАЯ ЗОНА // МРАЧНЫЕ БОЛОТА И СУМЕРКИ</div>
       <h1 class="start-title">STAL<span>ZONE</span></h1>
-      <p class="start-desc">Воксельный PvPvE extraction-шутер. Выноси хабар из Зоны в Бар, избегай аномалий и Выброса, собирай артефакты и качай ветку бартера.</p>
+      <p class="start-desc">Воксельный PvPvE extraction-шутер. Сумеречные болота, рельеф, костры, аномалии, детальное оружие в перчатках, нож, бартер и заточка +15.</p>
       <div class="start-features">
-        <span>⚡ 5 типов аномалий</span>
-        <span>☢ 4 шкалы заражений</span>
-        <span>📡 Радар 50м + ПДА</span>
-        <span>🔫 6 стволов + обвесы</span>
-        <span>⚒ Бартер и заточка +15</span>
-        <span>📱 Сенсор + ПК</span>
+        <span>🌧 Сумерки и дождь</span>
+        <span>🔪 Нож + 6 стволов</span>
+        <span>📡 Радар 50м + пик</span>
+        <span>⚡ 5 аномалий + Выброс</span>
+        <span>⚒ Бартер и +15</span>
       </div>
       <div class="start-actions">
         <button id="btn-deploy" class="btn-primary">ВОЙТИ В ЗОНУ</button>
-        <button id="btn-reset-save" class="btn-ghost">СБРОСИТЬ ПРОГРЕСС</button>
+        <button id="btn-reset-save" class="btn-ghost">СБРОС</button>
       </div>
-      <div class="start-hint">Управление: Левый стик / WASD • Правый экран / Мышь • Огонь • Прицел • [F] Лут/NPC • [B] Болт • [G] Детектор • [Tab] Инвентарь • [M] ПДА</div>
     </div>
   </div>
 
-  <!-- MAIN TACTICAL HUD -->
+  <!-- MINIMALIST TACTICAL MOBILE HUD -->
   <div id="hud" class="hidden">
-    <!-- TOP LEFT: RADAR + ZONE + EMISSION -->
+    <!-- TOP LEFT: SLEEK RADAR + ZONE + EMISSION -->
     <div id="hud-top-left">
       <div class="radar-shell">
         <canvas id="radar-canvas" width="128" height="128"></canvas>
         <div id="radar-human-box" title="Люди в радиусе 50 м">
-          <span class="radar-icon">👤</span>
+          <span class="radar-dot-ico">●</span>
           <span id="radar-human-count">0</span>
         </div>
-        <div id="radar-zone-tag">БАР [СЕЙВ]</div>
+        <div id="radar-zone-tag">БАР</div>
       </div>
-      <div id="safe-badge" class="status-pill safe">БЕЗОПАСНАЯ ЗОНА</div>
-      <div id="roof-badge" class="status-pill hidden">УКРЫТИЕ НАД ГОЛОВОЙ</div>
+      <div id="safe-badge" class="status-pill safe">СЕЙВ-ЗОНА</div>
+      <div id="roof-badge" class="status-pill hidden">УКРЫТИЕ</div>
       <div id="emission-banner" class="hidden">
-        <div class="em-title">⚠ ВЫБРОС ПРИБЛИЖАЕТСЯ</div>
-        <div id="emission-sub" class="em-sub">ИЩИТЕ УКРЫТИЕ ПОД КРЫШЕЙ!</div>
+        <div class="em-title">⚠ ВЫБРОС</div>
+        <div id="emission-sub" class="em-sub">ПОД КРЫШУ!</div>
       </div>
       <div id="proto-banner" class="hidden">
-        <div class="proto-title">⚡ ПРОТОАНОМАЛИЯ</div>
+        <div class="proto-title">⚡ ПРОТО</div>
         <div class="proto-bar-bg"><div id="proto-bar-fill"></div></div>
       </div>
     </div>
 
-    <!-- TOP CENTER: COMPASS / NOTIFICATIONS -->
+    <!-- TOP CENTER: COMPASS + TOASTS -->
     <div id="hud-top-center">
-      <div id="compass-bar">N</div>
+      <div id="compass-bar">N 000°</div>
       <div id="toast-container"></div>
     </div>
 
-    <!-- TOP RIGHT: CLOCK / MONEY / QUICK BUTTONS / KILLFEED -->
+    <!-- TOP RIGHT: MINIMAL META + KILLFEED -->
     <div id="hud-top-right">
       <div class="top-meta-bar">
-        <span id="hud-clock">12:00</span>
-        <span id="hud-weather">ПАСМУРНО</span>
+        <span id="hud-clock">18:24</span>
+        <span id="hud-weather" class="muted">ДОЖДЬ</span>
         <span id="hud-money" class="money-val">5 000 ₽</span>
-        <button id="btn-hud-pda" class="mini-hud-btn">ПДА [M]</button>
-        <button id="btn-hud-inv" class="mini-hud-btn">ИНВ [Tab]</button>
+        <button id="btn-hud-pda" class="mini-hud-btn">ПДА</button>
+        <button id="btn-hud-inv" class="mini-hud-btn">ИНВ</button>
         <button id="btn-hud-menu" class="mini-hud-btn">⚙</button>
       </div>
       <div id="killfeed"></div>
@@ -106,20 +104,20 @@
       <span class="hm-3"></span><span class="hm-4"></span>
     </div>
     <div id="reload-bar-wrap" class="hidden">
-      <div class="reload-label">ПЕРЕЗАРЯДКА...</div>
+      <div class="reload-label">ПЕРЕЗАРЯДКА</div>
       <div class="reload-track"><div id="reload-fill"></div></div>
     </div>
     <div id="detector-hud" class="hidden">
       <div class="det-header">
         <span id="det-name">САК-1</span>
-        <span id="det-mode">АРТЕФАКТЫ</span>
+        <span id="det-mode">АРТЫ</span>
       </div>
       <div class="det-leds">
         <span class="det-led"></span><span class="det-led"></span>
         <span class="det-led"></span><span class="det-led"></span>
         <span class="det-led"></span><span class="det-led"></span>
       </div>
-      <div id="det-text">ПОИСК СИГНАЛА...</div>
+      <div id="det-text">ПОИСК...</div>
       <button id="btn-signal-scan" class="det-scan-btn">СКАН СИГНАЛА [X]</button>
     </div>
     <div id="interact-prompt" class="hidden">
@@ -127,54 +125,35 @@
       <span id="interact-text">Взаимодействовать</span>
     </div>
 
-    <!-- BOTTOM LEFT: HP, STAMINA, BLEED, 4 CONTAMINATIONS, WEIGHT -->
+    <!-- BOTTOM LEFT: MINIMALIST VITALS & AUTO-DIMMING CONTAMINATIONS -->
     <div id="hud-bottom-left">
       <div class="contam-row">
-        <div class="contam-chip rad" title="Радиация">
-          <span class="c-icon">☢</span>
-          <div class="c-bar"><div id="bar-rad"></div></div>
-          <span id="val-rad" class="c-val">0</span>
-        </div>
-        <div class="contam-chip bio" title="Биозаражение">
-          <span class="c-icon">☣</span>
-          <div class="c-bar"><div id="bar-bio"></div></div>
-          <span id="val-bio" class="c-val">0</span>
-        </div>
-        <div class="contam-chip therm" title="Термическое">
-          <span class="c-icon">🔥</span>
-          <div class="c-bar"><div id="bar-therm"></div></div>
-          <span id="val-therm" class="c-val">0</span>
-        </div>
-        <div class="contam-chip psy" title="Пси-излучение">
-          <span class="c-icon">🧠</span>
-          <div class="c-bar"><div id="bar-psy"></div></div>
-          <span id="val-psy" class="c-val">0</span>
-        </div>
+        <div id="chip-rad" class="contam-chip rad"><span>☢</span><div class="c-bar"><div id="bar-rad"></div></div><span id="val-rad">0</span></div>
+        <div id="chip-bio" class="contam-chip bio"><span>☣</span><div class="c-bar"><div id="bar-bio"></div></div><span id="val-bio">0</span></div>
+        <div id="chip-therm" class="contam-chip therm"><span>🔥</span><div class="c-bar"><div id="bar-therm"></div></div><span id="val-therm">0</span></div>
+        <div id="chip-psy" class="contam-chip psy"><span>🧠</span><div class="c-bar"><div id="bar-psy"></div></div><span id="val-psy">0</span></div>
       </div>
-
       <div class="vitals-panel">
         <div class="vital-row">
-          <span class="vital-lbl">HP</span>
           <div class="vital-track hp"><div id="bar-hp"></div></div>
           <span id="val-hp" class="vital-num">100</span>
           <span id="icon-bleed" class="bleed-icon hidden">🩸</span>
         </div>
         <div class="vital-row">
-          <span class="vital-lbl">СТ</span>
           <div class="vital-track stam"><div id="bar-stam"></div></div>
-          <span id="val-weight" class="weight-num">12.4/45 кг</span>
+          <span id="val-weight" class="weight-num">12/42кг</span>
         </div>
       </div>
     </div>
 
-    <!-- BOTTOM RIGHT: WEAPON, AMMO, QUICK SLOTS -->
+    <!-- BOTTOM RIGHT: SLEEK WEAPON & QUICK SLOTS -->
     <div id="hud-bottom-right">
       <div class="quick-slots">
-        <button class="q-slot" data-slot="5"><span class="q-key">5</span><span class="q-ico">✚</span><span id="q-medkit" class="q-cnt">0</span></button>
-        <button class="q-slot" data-slot="6"><span class="q-key">6</span><span class="q-ico">🩹</span><span id="q-bandage" class="q-cnt">0</span></button>
-        <button class="q-slot" data-slot="7"><span class="q-key">7</span><span class="q-ico">💊</span><span id="q-antirad" class="q-cnt">0</span></button>
-        <button class="q-slot" data-slot="8"><span class="q-key">8</span><span class="q-ico">⚡</span><span id="q-energy" class="q-cnt">0</span></button>
-        <button class="q-slot" data-slot="9"><span class="q-key">9</span><span class="q-ico">💣</span><span id="q-grenade" class="q-cnt">0</span></button>
+        <button class="q-slot" data-slot="5"><span class="q-ico">✚</span><span id="q-medkit" class="q-cnt">0</span></button>
+        <button class="q-slot" data-slot="6"><span class="q-ico">🩹</span><span id="q-bandage" class="q-cnt">0</span></button>
+        <button class="q-slot" data-slot="7"><span class="q-ico">💊</span><span id="q-antirad" class="q-cnt">0</span></button>
+        <button class="q-slot" data-slot="8"><span class="q-ico">⚡</span><span id="q-energy" class="q-cnt">0</span></button>
+        <button class="q-slot" data-slot="9"><span class="q-ico">💣</span><span id="q-grenade" class="q-cnt">0</span></button>
       </div>
       <div class="weapon-panel">
         <div class="wpn-top">
@@ -187,16 +166,16 @@
           <span id="hud-ammo-res" class="ammo-res">120</span>
         </div>
         <div class="wpn-bot">
-          <button id="btn-ammo-type" class="wpn-tag">ОБЫЧ [T]</button>
-          <button id="btn-fire-mode" class="wpn-tag">АВТО [V]</button>
+          <button id="btn-ammo-type" class="wpn-tag">ОБЫЧ</button>
+          <button id="btn-fire-mode" class="wpn-tag">АВТО</button>
         </div>
       </div>
     </div>
 
-    <!-- MOBILE TOUCH CONTROLS -->
+    <!-- SLEEK FROSTED MOBILE TOUCH CONTROLS -->
     <div id="touch-controls" class="hidden">
       <div id="touch-left-zone">
-        <div id="joystick-base">
+        <div id="joystick-base" class="idle">
           <div id="joystick-knob"></div>
         </div>
         <div id="sprint-indicator">СПРИНТ</div>
@@ -204,19 +183,20 @@
       <div id="touch-look-zone"></div>
 
       <div id="touch-right-buttons">
-        <button id="tbtn-fire" class="t-btn t-fire">ОГОНЬ</button>
-        <button id="tbtn-ads" class="t-btn t-ads">ПРИЦЕЛ</button>
-        <button id="tbtn-reload" class="t-btn t-sm t-reload">R</button>
+        <button id="tbtn-fire" class="t-btn t-fire">●</button>
+        <button id="tbtn-ads" class="t-btn t-ads">◎</button>
+        <button id="tbtn-reload" class="t-btn t-sm t-reload">↻</button>
         <button id="tbtn-jump" class="t-btn t-sm t-jump">▲</button>
         <button id="tbtn-crouch" class="t-btn t-sm t-crouch">▼</button>
         <button id="tbtn-interact" class="t-btn t-interact hidden">F • ВЗЯТЬ</button>
       </div>
 
       <div id="touch-utility-strip">
-        <button id="tbtn-wpn1" class="t-util">ОСН</button>
-        <button id="tbtn-wpn2" class="t-util">ПИСТ</button>
-        <button id="tbtn-bolt" class="t-util">БОЛТ</button>
-        <button id="tbtn-det" class="t-util">ДЕТ</button>
+        <button id="tbtn-wpn1" class="t-util">1</button>
+        <button id="tbtn-wpn2" class="t-util">2</button>
+        <button id="tbtn-knife" class="t-util">🔪</button>
+        <button id="tbtn-bolt" class="t-util">🔩</button>
+        <button id="tbtn-det" class="t-util">📡</button>
       </div>
     </div>
   </div>
@@ -281,7 +261,7 @@
         <div class="pda-legend">
           <h3>ЛЕГЕНДА СЕКТОРА</h3>
           <div class="leg-item"><span class="dot green"></span> База «Бар» (Сейв-зона, укрытие)</div>
-          <div class="leg-item"><span class="dot yellow"></span> Юг / Окраины (Болота, деревня — I тир)</div>
+          <div class="leg-item"><span class="dot yellow"></span> Юг / Мрачные болота (I тир)</div>
           <div class="leg-item"><span class="dot red"></span> Север / Промзона и НИИ (II–III тир)</div>
           <div class="leg-item"><span class="dot orange"></span> Логова мутантов</div>
           <div class="leg-item"><span class="dot cyan"></span> Протоаномалии / Сигналы САК</div>
@@ -303,7 +283,7 @@
     </div>
   </div>
 
-  <!-- MODAL: NPC / BAR SERVICES (TRADER, BARTER, MECHANIC, FENCE, STASH) -->
+  <!-- MODAL: NPC / BAR SERVICES -->
   <div id="modal-npc" class="modal hidden">
     <div class="modal-window npc-window">
       <div class="modal-header">

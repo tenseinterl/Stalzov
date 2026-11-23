@@ -1,4 +1,4 @@
-// STALZONE Main Game Loop, FPS Controller, Ballistics, 3D Viewmodels & Extraction Logic
+// STALZONE Main Game Loop: Heightmap FPS Controller, Gloved Tactical 3D Weapons, Holo Collimator, Tactical Knife [3] & Extraction
 (function () {
   class StalzoneGame {
     constructor() {
@@ -16,21 +16,23 @@
       this.currentInteractTarget = null;
       this.autosaveTimer = 15;
 
+      // Spawn directly beside the Bar campfire, camo netting, ZIL truck & Stalker guard!
       this.player = {
-        x: 0, y: 0, z: 8,
+        x: 2.0, y: 0, z: 7.4,
         vy: 0, onGround: true,
-        yaw: 0, pitch: 0,
+        yaw: -0.45, pitch: -0.04,
         hp: 100, stamina: 100, bleeding: 0,
         contam: { rad: 0, bio: 0, therm: 0, psy: 0 },
         healOverTime: 0, healTimer: 0,
         energyBuffTimer: 0,
-        activeSlot: 'primary',
+        activeSlot: 'primary', // 'primary' | 'secondary' | 'melee'
         ammoType: 'fmj',
         fireMode: 'auto',
         mags: { ak74m: 30, pm: 8, saiga12: 8, as_val: 20, vss: 10, svd: 10 },
         fireCd: 0, reloadTimer: 0, triggerWasDown: false,
         adsBlend: 0, recoilKick: 0, muzzleFlash: 0,
-        boltThrowAnim: 0, holdingDetector: false,
+        knifeSwing: 0, boltThrowAnim: 0, holdingDetector: false,
+        swayX: 0, swayY: 0,
         bobPhase: 0, stepTimer: 0,
         currentSpread: 0.02,
         damageFlash: 0, shake: 0,
@@ -40,7 +42,6 @@
       this.ui.applySettingsUI();
       window.addEventListener('resize', () => this.engine.resize());
 
-      // Expose AndroidBridge hooks
       window.STALZONE_SAVE = () => this.save();
       window.STALZONE_BACK = () => {
         if (this.ui.openModal) {
@@ -58,17 +59,9 @@
       requestAnimationFrame(t => this.loop(t));
     }
 
-    save() {
-      window.GameData.saveProfile(this.profile);
-    }
-
-    toast(msg, kind) {
-      this.ui.toast(msg, kind);
-    }
-
-    addMoney(amount) {
-      this.profile.money += Math.round(amount);
-    }
+    save() { window.GameData.saveProfile(this.profile); }
+    toast(msg, kind) { this.ui.toast(msg, kind); }
+    addMoney(amount) { this.profile.money += Math.round(amount); }
 
     progressQuest(type, amount) {
       for (const q of this.profile.quests) {
@@ -82,6 +75,14 @@
     }
 
     getActiveWeaponStats() {
+      if (this.player.activeSlot === 'melee') {
+        return {
+          id: 'knife', name: 'Тактический нож', slot: 'melee', level: 0,
+          damage: 48, rpm: 130, mag: 0, reloadTime: 0.5, spread: 0.01, adsSpread: 0.01,
+          recoilV: 0, recoilH: 0, range: 2.8, pellets: 1, modes: ['semi'],
+          suppressed: true, hasOptic: false, hasLaser: false, zoomFov: 68
+        };
+      }
       const id = this.profile.equipment[this.player.activeSlot] || this.profile.equipment.primary;
       return window.GameData.getWeaponStats(this.profile, id);
     }
@@ -90,9 +91,13 @@
       if (this.player.reloadTimer > 0) this.player.reloadTimer = 0;
       this.player.holdingDetector = false;
       this.player.activeSlot = slot;
-      const wpn = this.getActiveWeaponStats();
-      if (!wpn.modes.includes(this.player.fireMode)) this.player.fireMode = wpn.modes[0];
-      if (this.player.mags[wpn.id] === undefined) this.player.mags[wpn.id] = wpn.mag;
+      if (slot === 'melee') {
+        this.ui.input.ads = false;
+      } else {
+        const wpn = this.getActiveWeaponStats();
+        if (!wpn.modes.includes(this.player.fireMode)) this.player.fireMode = wpn.modes[0];
+        if (this.player.mags[wpn.id] === undefined) this.player.mags[wpn.id] = wpn.mag;
+      }
       window.SoundEngine.playUI();
     }
 
@@ -123,7 +128,7 @@
 
     startReload() {
       const p = this.player;
-      if (p.holdingDetector || p.reloadTimer > 0) return;
+      if (p.holdingDetector || p.activeSlot === 'melee' || p.reloadTimer > 0) return;
       const wpn = this.getActiveWeaponStats();
       const cur = p.mags[wpn.id] ?? wpn.mag;
       if (cur >= wpn.mag) return;
@@ -172,39 +177,21 @@
         return;
       }
       window.SoundEngine.playHeal();
-      if (itemId === 'medkit') {
-        p.healOverTime = 55;
-        p.healTimer = 5.0;
-        this.toast('✚ Применена аптечка АИ-2 (+55 HP за 5с)', 'good');
-      } else if (itemId === 'bandage') {
-        p.bleeding = 0;
-        p.hp = Math.min(100, p.hp + 12);
-        this.toast('🩹 Кровотечение остановлено', 'good');
-      } else if (itemId === 'antirad') {
-        p.contam.rad = Math.max(0, p.contam.rad - 68);
-        p.contam.bio = Math.max(0, p.contam.bio - 22);
-        this.toast('💊 Антирад вывел радиацию', 'good');
-      } else if (itemId === 'energy') {
-        p.stamina = 100;
-        p.energyBuffTimer = 25;
-        this.toast('⚡ Энергетик: ускоренный реген стамины 25с', 'good');
-      }
+      if (itemId === 'medkit') { p.healOverTime = 55; p.healTimer = 5.0; this.toast('✚ Аптечка АИ-2 (+55 HP)', 'good'); }
+      else if (itemId === 'bandage') { p.bleeding = 0; p.hp = Math.min(100, p.hp + 12); this.toast('🩹 Кровотечение остановлено', 'good'); }
+      else if (itemId === 'antirad') { p.contam.rad = Math.max(0, p.contam.rad - 68); p.contam.bio = Math.max(0, p.contam.bio - 22); this.toast('💊 Антирад вывел радиацию', 'good'); }
+      else if (itemId === 'energy') { p.stamina = 100; p.energyBuffTimer = 25; this.toast('⚡ Энергетик: реген стамины 25с', 'good'); }
     }
 
     getLookDirection() {
       const p = this.player;
       const cp = Math.cos(p.pitch);
-      return {
-        x: -Math.sin(p.yaw) * cp,
-        y: Math.sin(p.pitch),
-        z: -Math.cos(p.yaw) * cp
-      };
+      return { x: -Math.sin(p.yaw) * cp, y: Math.sin(p.pitch), z: -Math.cos(p.yaw) * cp };
     }
 
     damagePlayer(rawDmg, source, ignoreArmor = false) {
       const p = this.player;
-      if (p.dead) return;
-      if (this.world.isSafeZone(p.x, p.z)) return;
+      if (p.dead || this.world.isSafeZone(p.x, p.z)) return;
       const derived = window.GameData.getPlayerDerivedStats(this.profile);
       const mult = ignoreArmor ? 1.0 : (1 - derived.bulletRes / 120);
       const dmg = rawDmg * mult;
@@ -214,20 +201,13 @@
         p.shake = Math.max(p.shake, 0.025);
         window.SoundEngine.playHurt();
       }
-      if (p.hp <= 0) {
-        p.hp = 0;
-        this._handlePlayerDeath(source);
-      }
+      if (p.hp <= 0) { p.hp = 0; this._handlePlayerDeath(source); }
     }
 
     _handlePlayerDeath(reason) {
       const p = this.player;
       p.dead = true;
       this.profile.stats.deaths++;
-
-      // Extraction loop without wipes:
-      // Equipped gear (armor, weapons, detector, container + equipped artifacts) stays SAFE!
-      // Backpack loot drops into a visible "Сумка с хабаром" on the ground!
       if (this.profile.backpack.length > 0 && !this.world.isSafeZone(p.x, p.z)) {
         this.entities.spawnLootBag(p.x, p.z, 'Ваша Сумка с хабаром', this.profile.backpack, true);
         this.profile.backpack = [
@@ -243,63 +223,39 @@
     respawnAtBar(keepPos = false) {
       const p = this.player;
       if (!keepPos) {
-        p.x = 0; p.y = 0; p.z = 8; p.yaw = 0; p.pitch = 0;
+        p.x = 2.0; p.z = 7.4; p.y = this.world.getHeight(2.0, 7.4);
+        p.yaw = -0.45; p.pitch = -0.04;
       }
-      p.vy = 0;
-      p.hp = 100;
-      p.stamina = 100;
-      p.bleeding = 0;
+      p.vy = 0; p.hp = 100; p.stamina = 100; p.bleeding = 0;
       p.contam = { rad: 0, bio: 0, therm: 0, psy: 0 };
-      p.healOverTime = 0; p.healTimer = 0;
-      p.dead = false;
-      p.reloadTimer = 0;
-      this.ui.input.fire = false;
-      this.ui.input.ads = false;
+      p.healOverTime = 0; p.healTimer = 0; p.dead = false; p.reloadTimer = 0;
+      this.ui.input.fire = false; this.ui.input.ads = false;
     }
 
-    // Find closest interactable (NPC, Stash, Loot Bag, Revealed Artifact, Signal Stash, Proto-Anomaly)
     _findInteractTarget() {
       const p = this.player;
-      let best = null;
-      let bestD = 3.8;
-
+      let best = null, bestD = 3.8;
       for (const n of this.world.npcs) {
         const d = Math.hypot(n.x - p.x, n.z - p.z);
-        if (d < bestD) {
-          bestD = d;
-          best = { kind: 'npc', obj: n, label: `${n.name} — ${n.role}`, shortLabel: n.isBox ? 'СХРОН' : 'ГОВОРИТЬ' };
-        }
+        if (d < bestD) { bestD = d; best = { kind: 'npc', obj: n, label: `${n.name} — ${n.role}`, shortLabel: n.isBox ? 'СХРОН' : 'ГОВОРИТЬ' }; }
       }
       for (const b of this.entities.lootBags) {
         const d = Math.hypot(b.x - p.x, b.z - p.z);
-        if (d < bestD) {
-          bestD = d;
-          best = { kind: 'bag', obj: b, label: `Забрать: ${b.title} (${b.items.length} шт.)`, shortLabel: 'ЛУТ' };
-        }
+        if (d < bestD) { bestD = d; best = { kind: 'bag', obj: b, label: `Забрать: ${b.title} (${b.items.length} шт.)`, shortLabel: 'ЛУТ' }; }
       }
       for (const art of this.world.artifacts) {
         if (art.collected || !art.revealed) continue;
         const d = Math.hypot(art.x - p.x, art.z - p.z);
-        if (d < bestD) {
-          bestD = d;
-          const def = window.GameData.ARTIFACTS[art.artId];
-          best = { kind: 'artifact', obj: art, label: `Подобрать артефакт «${def.name}»`, shortLabel: 'АРТЕФАКТ' };
-        }
+        if (d < bestD) { bestD = d; const def = window.GameData.ARTIFACTS[art.artId]; best = { kind: 'artifact', obj: art, label: `Подобрать артефакт «${def.name}»`, shortLabel: 'АРТ' }; }
       }
       if (this.entities.signalStash) {
         const s = this.entities.signalStash;
         const d = Math.hypot(s.x - p.x, s.z - p.z);
-        if (d < bestD) {
-          bestD = d;
-          best = { kind: 'signal', obj: s, label: 'Обыскать тайник сигнала САК', shortLabel: 'ТАЙНИК' };
-        }
+        if (d < bestD) { bestD = d; best = { kind: 'signal', obj: s, label: 'Обыскать тайник сигнала САК', shortLabel: 'ТАЙНИК' }; }
       }
       for (const pr of this.world.protoAnomalies) {
         if (pr.active || pr.cooldown > 0) continue;
-        const d = Math.hypot(pr.x - p.x, pr.z - p.z);
-        if (d < 4.5) {
-          best = { kind: 'proto', obj: pr, label: `Активировать ${pr.name}`, shortLabel: 'ПРОТО' };
-        }
+        if (Math.hypot(pr.x - p.x, pr.z - p.z) < 4.5) best = { kind: 'proto', obj: pr, label: `Активировать ${pr.name}`, shortLabel: 'ПРОТО' };
       }
       return best;
     }
@@ -307,13 +263,9 @@
     interact() {
       const t = this.currentInteractTarget;
       if (!t) return;
-      if (t.kind === 'npc') {
-        window.SoundEngine.playUI();
-        this.ui.openNpcModal(t.obj.id);
-      } else if (t.kind === 'bag') {
-        for (const it of t.obj.items) {
-          window.GameData.addItemToList(this.profile.backpack, it.id, it.count);
-        }
+      if (t.kind === 'npc') { window.SoundEngine.playUI(); this.ui.openNpcModal(t.obj.id); }
+      else if (t.kind === 'bag') {
+        for (const it of t.obj.items) window.GameData.addItemToList(this.profile.backpack, it.id, it.count);
         const idx = this.entities.lootBags.indexOf(t.obj);
         if (idx >= 0) this.entities.lootBags.splice(idx, 1);
         window.SoundEngine.playHeal();
@@ -325,18 +277,15 @@
         this.profile.stats.artifactsFound++;
         this.progressQuest('pickup_art', 1);
         window.SoundEngine.playHeal();
-        const def = window.GameData.ARTIFACTS[t.obj.artId];
-        this.toast(`✨ Найден артефакт «${def.name}»! Поместите в контейнер [Tab].`, 'good');
+        this.toast(`✨ Артефакт «${window.GameData.ARTIFACTS[t.obj.artId].name}» в рюкзаке!`, 'good');
         this.save();
       } else if (t.kind === 'signal') {
-        for (const it of t.obj.items) {
-          window.GameData.addItemToList(this.profile.backpack, it.id, it.count);
-        }
+        for (const it of t.obj.items) window.GameData.addItemToList(this.profile.backpack, it.id, it.count);
         this.addMoney(t.obj.money);
         this.entities.signalStash = null;
         this.progressQuest('find_signal', 1);
         window.SoundEngine.playHeal();
-        this.toast(`📡 Тайник сигнала обыскан! +${t.obj.money} ₽ и редкий бартер!`, 'good');
+        this.toast(`📡 Тайник сигнала обыскан! +${t.obj.money} ₽`, 'good');
         this.save();
       } else if (t.kind === 'proto') {
         this.entities.activateProtoAnomaly(t.obj, this);
@@ -349,44 +298,36 @@
       const derived = window.GameData.getPlayerDerivedStats(this.profile);
       const wpn = this.getActiveWeaponStats();
 
-      // Apply camera look
+      // Smooth weapon inertia sway from turning!
+      p.swayX += (Math.max(-0.04, Math.min(0.04, -inp.lookDX * 0.45)) - p.swayX) * Math.min(1, dt * 11);
+      p.swayY += (Math.max(-0.03, Math.min(0.03, inp.lookDY * 0.45)) - p.swayY) * Math.min(1, dt * 11);
+
       p.yaw -= inp.lookDX;
       p.pitch = Math.max(-1.42, Math.min(1.42, p.pitch - inp.lookDY));
-      inp.lookDX = 0;
-      inp.lookDY = 0;
+      inp.lookDX = 0; inp.lookDY = 0;
 
-      // Movement & Weight/Stamina math
       const overloaded = derived.weight > derived.maxWeight;
       const isMoving = Math.hypot(inp.moveX, inp.moveZ) > 0.08;
       const canSprint = inp.sprint && isMoving && !inp.ads && !inp.crouch && p.stamina > 4 && !overloaded;
 
       let speed = 5.4 * derived.speedMult;
+      if (p.activeSlot === 'melee') speed *= 1.12; // Faster movement with Knife out!
       if (overloaded) speed *= 0.62;
       if (this.world.isInSwamp(p.x, p.z)) speed *= 0.72;
       if (inp.crouch) speed *= 0.54;
       else if (inp.ads) speed *= 0.62;
       else if (canSprint) speed *= 1.56;
 
-      if (canSprint) {
-        p.stamina = Math.max(0, p.stamina - (16 + Math.max(0, derived.weight - 20) * 0.25) * dt);
-      } else {
-        const regen = (13 + derived.stamRegenBonus + (p.energyBuffTimer > 0 ? 18 : 0)) * (isMoving ? 0.65 : 1.0);
-        p.stamina = Math.min(100, p.stamina + regen * dt);
-      }
+      if (canSprint) p.stamina = Math.max(0, p.stamina - (16 + Math.max(0, derived.weight - 20) * 0.25) * dt);
+      else p.stamina = Math.min(100, p.stamina + (13 + derived.stamRegenBonus + (p.energyBuffTimer > 0 ? 18 : 0)) * (isMoving ? 0.65 : 1.0) * dt);
       if (p.energyBuffTimer > 0) p.energyBuffTimer -= dt;
 
-      // Forward/Right vectors from yaw
       const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
       const rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
       const dx = (fx * inp.moveZ + rx * inp.moveX) * speed * dt;
       const dz = (fz * inp.moveZ + rz * inp.moveX) * speed * dt;
 
-      // Jump & Gravity
-      if (inp.jump && p.onGround && p.stamina >= 10) {
-        p.vy = 6.7;
-        p.onGround = false;
-        p.stamina = Math.max(0, p.stamina - 10);
-      }
+      if (inp.jump && p.onGround && p.stamina >= 10) { p.vy = 6.7; p.onGround = false; p.stamina = Math.max(0, p.stamina - 10); }
       inp.jump = false;
 
       const prevVy = p.vy;
@@ -395,15 +336,12 @@
       const res = this.engine.moveWithCollisions(p.x, p.y, p.z, dx, p.vy * dt, dz, 0.42, eyeStand);
       p.x = res.x; p.y = res.y; p.z = res.z;
 
-      // Fall damage (e.g., after Springboard anomaly launch!)
       if (res.onGround && !p.onGround && prevVy < -10.5) {
-        const fallDmg = Math.min(65, (-prevVy - 9.5) * 6.5);
-        this.damagePlayer(fallDmg, 'Падение с высоты', true);
+        this.damagePlayer(Math.min(65, (-prevVy - 9.5) * 6.5), 'Падение с высоты', true);
       }
       p.onGround = res.onGround;
       if (p.onGround && p.vy < 0) p.vy = 0;
 
-      // Footsteps & Headbob
       if (isMoving && p.onGround) {
         p.bobPhase += dt * (canSprint ? 13 : 8.5);
         p.stepTimer -= dt;
@@ -416,28 +354,25 @@
         p.bobPhase = 0;
       }
 
-      // Smooth ADS & Recoil recovery
-      const targetAds = (inp.ads && !p.holdingDetector && p.reloadTimer <= 0) ? 1 : 0;
-      p.adsBlend += (targetAds - p.adsBlend) * Math.min(1, dt * 13);
+      const targetAds = (inp.ads && !p.holdingDetector && p.activeSlot !== 'melee' && p.reloadTimer <= 0) ? 1 : 0;
+      p.adsBlend += (targetAds - p.adsBlend) * Math.min(1, dt * 14);
       p.recoilKick = Math.max(0, p.recoilKick - dt * 7);
       p.muzzleFlash = Math.max(0, p.muzzleFlash - dt * 16);
+      p.knifeSwing = Math.max(0, p.knifeSwing - dt * 3.4);
       p.boltThrowAnim = Math.max(0, p.boltThrowAnim - dt);
       p.damageFlash = Math.max(0, p.damageFlash - dt * 2.4);
       p.shake = Math.max(0, p.shake - dt * 0.08);
 
-      // Spread calculation
       const baseSpread = wpn.spread * (1 - p.adsBlend) + wpn.adsSpread * p.adsBlend;
       p.currentSpread = baseSpread * (isMoving ? (canSprint ? 1.85 : 1.35) : 1.0) * (inp.crouch ? 0.78 : 1.0);
 
-      // Reload timer
       if (p.reloadTimer > 0) {
         p.reloadTimer -= dt;
         if (p.reloadTimer <= 0) {
           const cur = p.mags[wpn.id] ?? 0;
           const need = wpn.mag - cur;
           const ammoId = 'ammo_' + p.ammoType;
-          const avail = window.GameData.countItem(this.profile.backpack, ammoId);
-          const load = Math.min(need, avail);
+          const load = Math.min(need, window.GameData.countItem(this.profile.backpack, ammoId));
           if (load > 0) {
             window.GameData.removeItemFromList(this.profile.backpack, ammoId, load);
             p.mags[wpn.id] = cur + load;
@@ -446,13 +381,14 @@
         }
       }
 
-      // Firing logic
       if (p.fireCd > 0) p.fireCd -= dt;
       const firePressed = inp.fire;
       if (firePressed && !p.holdingDetector && p.reloadTimer <= 0 && p.fireCd <= 0) {
-        const allowShot = (p.fireMode === 'auto') || !p.triggerWasDown;
+        const allowShot = (p.fireMode === 'auto' && p.activeSlot !== 'melee') || !p.triggerWasDown;
         if (allowShot) {
-          if (this.world.isSafeZone(p.x, p.z)) {
+          if (p.activeSlot === 'melee') {
+            this._slashKnife();
+          } else if (this.world.isSafeZone(p.x, p.z)) {
             if (!p.triggerWasDown) this.toast('Стрельба запрещена в сейв-зоне «Бар»!', 'bad');
           } else {
             this._fireWeapon(wpn);
@@ -461,33 +397,52 @@
       }
       p.triggerWasDown = firePressed;
 
-      // Contaminations (4 scales vs armor protection) & Artifacts debuffs
       this._updateContaminationsAndVitals(dt, derived);
-
-      // Detector artifact revealing & beeping
       this._updateDetector(dt, derived);
-
-      // Interact prompt scan
       this.currentInteractTarget = this._findInteractTarget();
+    }
+
+    _slashKnife() {
+      const p = this.player;
+      p.fireCd = 0.42;
+      p.knifeSwing = 1.0;
+      const dir = this.getLookDirection();
+      const eyeY = p.y + (this.ui.input.crouch ? 1.05 : 1.56);
+      const hit = this.entities.raycastEnemies(p.x, eyeY, p.z, dir.x, dir.y, dir.z, 2.9);
+      window.SoundEngine.playKnifeSlash(!!hit);
+      if (hit && !this.world.isSafeZone(p.x, p.z)) {
+        const dmg = hit.isHeadshot ? 84 : 48;
+        hit.enemy.hp -= dmg;
+        hit.enemy.hitFlash = 0.2;
+        hit.enemy.bleedTimer = 4.0;
+        this.entities.spawnParticles(p.x + dir.x * hit.dist, eyeY + dir.y * hit.dist, p.z + dir.z * hit.dist, 12, [0.85, 0.1, 0.1, 1], 4, 0.45, 0.12, 8);
+        window.SoundEngine.playHitmarker(hit.isHeadshot);
+        this.ui.triggerHitmarker(hit.isHeadshot);
+        if (hit.enemy.hp <= 0) this.entities.onEnemyKilled(hit.enemy, hit.isHeadshot, this, 'Нож');
+      }
     }
 
     _fireWeapon(wpn) {
       const p = this.player;
       const curMag = p.mags[wpn.id] ?? wpn.mag;
-      if (curMag <= 0) {
-        this.startReload();
-        return;
-      }
+      if (curMag <= 0) { this.startReload(); return; }
 
       p.mags[wpn.id] = curMag - 1;
       p.fireCd = 60 / wpn.rpm;
-      p.recoilKick = Math.min(1.0, p.recoilKick + 0.55);
-      p.muzzleFlash = wpn.suppressed ? 0.25 : 1.0;
+      p.recoilKick = Math.min(1.0, p.recoilKick + 0.58);
+      p.muzzleFlash = wpn.suppressed ? 0.35 : 1.0;
 
-      // Apply camera recoil (vertical + horizontal)
       p.pitch = Math.min(1.42, p.pitch + wpn.recoilV * (1 - p.adsBlend * 0.3));
       p.yaw += (Math.random() - 0.5) * wpn.recoilH * 2;
       window.SoundEngine.playShot(wpn.id, wpn.suppressed);
+
+      // Eject brass shell casing to the right!
+      const rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
+      this.entities.particles.push({
+        x: p.x + rx * 0.32, y: p.y + 1.42, z: p.z + rz * 0.32,
+        vx: rx * (2.4 + Math.random()), vy: 1.6 + Math.random() * 0.8, vz: rz * (2.4 + Math.random()),
+        color: [0.95, 0.78, 0.32, 1], size: 0.045, life: 0.9, maxLife: 0.9, gravity: 11
+      });
 
       const ammoCfg = window.GameData.AMMO_TYPES[p.ammoType];
       const eyeY = p.y + (this.ui.input.crouch ? 1.05 : 1.56);
@@ -495,10 +450,9 @@
 
       let anyHit = false, anyHead = false;
       for (let pel = 0; pel < wpn.pellets; pel++) {
-        const sx = (Math.random() - 0.5) * p.currentSpread * 2;
-        const sy = (Math.random() - 0.5) * p.currentSpread * 2;
-        const sz = (Math.random() - 0.5) * p.currentSpread * 2;
-        const dx = baseDir.x + sx, dy = baseDir.y + sy, dz = baseDir.z + sz;
+        const dx = baseDir.x + (Math.random() - 0.5) * p.currentSpread * 2;
+        const dy = baseDir.y + (Math.random() - 0.5) * p.currentSpread * 2;
+        const dz = baseDir.z + (Math.random() - 0.5) * p.currentSpread * 2;
         const len = Math.hypot(dx, dy, dz);
         const ndx = dx / len, ndy = dy / len, ndz = dz / len;
 
@@ -507,9 +461,9 @@
         const endDist = hit ? hit.dist : wallT;
 
         this.entities.addTracer(
-          p.x + ndx * 0.6, eyeY - 0.08 + ndy * 0.6, p.z + ndz * 0.6,
+          p.x + ndx * 0.65, eyeY - 0.08 + ndy * 0.65, p.z + ndz * 0.65,
           p.x + ndx * endDist, eyeY + ndy * endDist, p.z + ndz * endDist,
-          wpn.suppressed ? [0.7, 0.9, 1.0, 0.55] : [1.0, 0.88, 0.45, 0.85]
+          wpn.suppressed ? [0.7, 0.9, 1.0, 0.55] : [1.0, 0.86, 0.42, 0.9]
         );
 
         if (hit) {
@@ -518,77 +472,46 @@
           const hsMult = hit.isHeadshot ? 1.75 : 1.0;
           if (hit.isHeadshot) anyHead = true;
 
-          // Effective armor reduction with AP ammo penetration
           const effArmor = Math.max(0, en.armor * (1 - ammoCfg.apBonus));
-          const armorMult = 1 - effArmor / 130;
-          const mutantMult = en.isHuman ? 1.0 : ammoCfg.mutantMult;
-          const finalDmg = wpn.damage * ammoCfg.dmgMult * hsMult * armorMult * mutantMult;
-
-          en.hp -= finalDmg;
-          en.hitFlash = 0.16;
+          const finalDmg = wpn.damage * ammoCfg.dmgMult * hsMult * (1 - effArmor / 130) * (en.isHuman ? 1.0 : ammoCfg.mutantMult);
+          en.hp -= finalDmg; en.hitFlash = 0.16;
           if (Math.random() < ammoCfg.bleedChance) en.bleedTimer = Math.max(en.bleedTimer, 4.5);
 
-          this.entities.spawnParticles(
-            p.x + ndx * hit.dist, eyeY + ndy * hit.dist, p.z + ndz * hit.dist,
-            hit.isHeadshot ? 10 : 5, [0.85, 0.12, 0.12, 1], 3.5, 0.4, 0.11, 8
-          );
-          if (en.hp <= 0) {
-            this.entities.onEnemyKilled(en, hit.isHeadshot, this, wpn.name);
-          }
+          this.entities.spawnParticles(p.x + ndx * hit.dist, eyeY + ndy * hit.dist, p.z + ndz * hit.dist, hit.isHeadshot ? 10 : 5, [0.85, 0.12, 0.12, 1], 3.5, 0.4, 0.11, 8);
+          if (en.hp <= 0) this.entities.onEnemyKilled(en, hit.isHeadshot, this, wpn.name);
         } else if (wallT < wpn.range) {
-          this.entities.spawnParticles(
-            p.x + ndx * wallT, eyeY + ndy * wallT, p.z + ndz * wallT,
-            4, [0.85, 0.82, 0.72, 0.9], 2.5, 0.35, 0.08, 7
-          );
+          this.entities.spawnParticles(p.x + ndx * wallT, eyeY + ndy * wallT, p.z + ndz * wallT, 4, [0.85, 0.82, 0.72, 0.9], 2.5, 0.35, 0.08, 7);
         }
       }
 
-      if (anyHit) {
-        window.SoundEngine.playHitmarker(anyHead);
-        this.ui.triggerHitmarker(anyHead);
-      }
+      if (anyHit) { window.SoundEngine.playHitmarker(anyHead); this.ui.triggerHitmarker(anyHead); }
       if (p.mags[wpn.id] === 0) this.startReload();
     }
 
     _updateContaminationsAndVitals(dt, derived) {
       const p = this.player;
-      const inSafe = this.world.isSafeZone(p.x, p.z);
-
-      // Safe zone rapidly heals & clears contaminations
-      if (inSafe) {
+      if (this.world.isSafeZone(p.x, p.z)) {
         p.hp = Math.min(100, p.hp + dt * 12);
         p.bleeding = Math.max(0, p.bleeding - dt * 20);
-        for (const k of ['rad', 'bio', 'therm', 'psy']) {
-          p.contam[k] = Math.max(0, p.contam[k] - dt * 22);
-        }
+        for (const k of ['rad', 'bio', 'therm', 'psy']) p.contam[k] = Math.max(0, p.contam[k] - dt * 22);
         return;
       }
 
-      // Environmental contamination fields vs armor protection (1..4)
       const envGain = { rad: 0, bio: 0, therm: 0, psy: 0 };
       const protMap = { rad: derived.radProt, bio: derived.bioProt, therm: derived.thermProt, psy: derived.psyProt };
       for (const z of this.world.contamZones) {
         const d = Math.hypot(p.x - z.x, p.z - z.z);
         if (d < z.radius) {
           const excess = z.level - protMap[z.type];
-          if (excess > 0) {
-            envGain[z.type] += excess * 7.5 * (1 - d / (z.radius * 1.25));
-          }
+          if (excess > 0) envGain[z.type] += excess * 7.5 * (1 - d / (z.radius * 1.25));
         }
       }
-
-      // Apply container-filtered artifact debuffs + natural decay
       for (const k of ['rad', 'bio', 'therm', 'psy']) {
         const net = envGain[k] + derived.artDebuffs[k];
-        if (net > 0.05) {
-          p.contam[k] = Math.min(100, p.contam[k] + net * dt);
-        } else {
-          const decay = k === 'therm' ? 9 : (k === 'psy' ? 6 : 2.2);
-          p.contam[k] = Math.max(0, p.contam[k] - decay * dt);
-        }
+        if (net > 0.05) p.contam[k] = Math.min(100, p.contam[k] + net * dt);
+        else p.contam[k] = Math.max(0, p.contam[k] - (k === 'therm' ? 9 : (k === 'psy' ? 6 : 2.2)) * dt);
       }
 
-      // Geiger counter crackle sound when Radiation > 8
       if (p.contam.rad > 8) {
         this.geigerTimer -= dt;
         if (this.geigerTimer <= 0) {
@@ -596,49 +519,32 @@
           window.SoundEngine.playGeigerClick();
         }
       }
-
-      // Psy-radiation camera sway/tremor at high levels
       if (p.contam.psy > 35) {
         const psi = (p.contam.psy - 35) / 65;
         p.shake = Math.max(p.shake, psi * 0.014);
         p.yaw += Math.sin(performance.now() * 0.005) * psi * 0.004;
       }
 
-      // Contamination & Bleeding DOT
-      if (p.contam.rad > 20) this.damagePlayer(((p.contam.rad - 20) / 80) * 5.5 * dt, 'Лучевая болезнь (Радиация)', true);
+      if (p.contam.rad > 20) this.damagePlayer(((p.contam.rad - 20) / 80) * 5.5 * dt, 'Лучевая болезнь', true);
       if (p.contam.bio > 20) this.damagePlayer(((p.contam.bio - 20) / 80) * 6.0 * dt, 'Биозаражение', true);
       if (p.contam.therm > 15) this.damagePlayer(((p.contam.therm - 15) / 85) * 11.5 * dt, 'Термические ожоги', true);
       if (p.contam.psy > 25) this.damagePlayer(((p.contam.psy - 25) / 75) * 8.0 * dt, 'Пси-выжигание', true);
+      if (p.bleeding > 0) { this.damagePlayer((p.bleeding / 100) * 5.2 * dt, 'Потеря крови', true); p.bleeding = Math.max(0, p.bleeding - dt * 1.4); }
 
-      if (p.bleeding > 0) {
-        this.damagePlayer((p.bleeding / 100) * 5.2 * dt, 'Потеря крови', true);
-        p.bleeding = Math.max(0, p.bleeding - dt * 1.4);
-      }
-
-      // Healing over time (Medkit + Artifact regen, reduced by Bio contamination!)
       const bioDebuff = p.contam.bio > 15 ? 0.5 : 1.0;
-      if (p.healTimer > 0) {
-        const rate = (p.healOverTime / 5.0) * bioDebuff;
-        p.hp = Math.min(100, p.hp + rate * dt);
-        p.healTimer -= dt;
-      }
-      if (derived.hpRegen > 0 && p.hp > 0 && p.hp < 100) {
-        p.hp = Math.min(100, p.hp + derived.hpRegen * bioDebuff * dt);
-      }
+      if (p.healTimer > 0) { p.hp = Math.min(100, p.hp + (p.healOverTime / 5.0) * bioDebuff * dt); p.healTimer -= dt; }
+      if (derived.hpRegen > 0 && p.hp > 0 && p.hp < 100) p.hp = Math.min(100, p.hp + derived.hpRegen * bioDebuff * dt);
     }
 
     _updateDetector(dt, derived) {
       const p = this.player;
       const det = derived.detector;
       let maxSig = 0;
-
       if (p.holdingDetector) {
-        // Signal Scan proximity
         if (this.entities.signalScan.active) {
           const ds = Math.hypot(p.x - this.entities.signalScan.targetX, p.z - this.entities.signalScan.targetZ);
           maxSig = Math.max(maxSig, Math.max(0, 1 - ds / 70));
         }
-        // Artifact detection & manifesting
         for (const art of this.world.artifacts) {
           if (art.collected) continue;
           const d = Math.hypot(p.x - art.x, p.z - art.z);
@@ -652,7 +558,6 @@
             }
           }
         }
-
         if (maxSig > 0.08) {
           this.detectorBeepTimer -= dt;
           if (this.detectorBeepTimer <= 0) {
@@ -664,88 +569,144 @@
       this.detectorSignalStrength = maxSig;
     }
 
-    // Detailed First-Person 3D Voxel Weapon / Detector / Bolt Viewmodel Renderer
-    _renderViewmodel(fovDeg) {
+    // === HIGH-DETAIL GLOVED HANDS + SPECULAR 3D WEAPONS + HOLO SIGHT + TACTICAL KNIFE ===
+    _renderViewmodel(fovDeg, nowSec) {
       const p = this.player;
       const wpn = this.getActiveWeaponStats();
-      if (p.adsBlend > 0.72 && wpn.hasOptic && !p.holdingDetector) return; // Hidden inside sniper scope overlay
+      if (p.adsBlend > 0.72 && wpn.hasOptic && wpn.id !== 'ak74m' && !p.holdingDetector) return;
 
       const E = this.engine;
-      E.beginViewmodelPass(Math.max(45, fovDeg));
+      E.beginViewmodelPass(Math.max(46, fovDeg), p.muzzleFlash);
 
-      const bobX = Math.cos(p.bobPhase * 0.5) * 0.015 * (1 - p.adsBlend * 0.8);
-      const bobY = Math.abs(Math.sin(p.bobPhase)) * 0.018 * (1 - p.adsBlend * 0.8);
+      const breath = Math.sin(nowSec * 2.1) * 0.004;
+      const bobX = Math.cos(p.bobPhase * 0.5) * 0.015 * (1 - p.adsBlend * 0.82) + p.swayX;
+      const bobY = Math.abs(Math.sin(p.bobPhase)) * 0.018 * (1 - p.adsBlend * 0.82) + breath + p.swayY;
 
-      // Bolt throw hand animation
+      const gloveCol = [0.24, 0.26, 0.25, 1];
+      const knuckleCol = [0.34, 0.36, 0.35, 1];
+      const sleeveCol = [0.46, 0.48, 0.38, 1];
+
+      // Bolt throw animation
       if (p.boltThrowAnim > 0) {
         const k = p.boltThrowAnim / 0.4;
-        E.drawViewPart(-0.18 + (1 - k) * 0.16, -0.18 + k * 0.1, -0.45 - (1 - k) * 0.25, 0.05, 0.05, 0.14, k * 2, k, [0.78, 0.82, 0.86, 1], 'white', 0.2);
+        E.drawViewPart(-0.18 + (1 - k) * 0.16, -0.18 + k * 0.1, -0.45 - (1 - k) * 0.25, 0.05, 0.05, 0.14, k * 2, k, [0.85, 0.88, 0.92, 1], 'gunmetal', 0.15, 0.9);
       }
 
+      // === 1. DETECTOR IN GLOVED HAND ===
       if (p.holdingDetector) {
-        // 3D SAK / Buryat Detector device in hand
         const dx = 0.22 + bobX, dy = -0.22 - bobY, dz = -0.48;
-        E.drawViewPart(dx, dy, dz, 0.15, 0.22, 0.06, -0.2, 0.18, [0.22, 0.27, 0.24, 1], 'concrete');
-        // Glowing radar screen on detector
+        E.drawViewPart(dx + 0.04, dy - 0.12, dz + 0.14, 0.11, 0.12, 0.26, -0.2, 0.2, sleeveCol, 'camo_armor', 0, 0.15);
+        E.drawViewPart(dx, dy - 0.06, dz + 0.04, 0.10, 0.10, 0.10, -0.2, 0.15, gloveCol, 'asphalt', 0, 0.35);
+        E.drawViewPart(dx, dy, dz, 0.16, 0.23, 0.06, -0.2, 0.18, [0.32, 0.38, 0.34, 1], 'gunmetal', 0, 0.5);
         const sig = this.detectorSignalStrength;
-        E.drawViewPart(dx, dy + 0.03, dz + 0.032, 0.11, 0.1, 0.01, -0.2, 0.18, [0.12 + sig * 0.8, 0.82, 0.55, 1], 'white', 0.9);
-        // Antenna
-        E.drawViewPart(dx + 0.05, dy + 0.16, dz, 0.016, 0.14, 0.016, 0, 0, [0.4, 0.42, 0.45, 1], 'white');
+        E.drawViewPart(dx, dy + 0.03, dz + 0.032, 0.12, 0.10, 0.01, -0.2, 0.18, [0.12 + sig * 0.85, 0.88, 0.55, 1], 'white', 1.1, 0.8);
+        E.drawViewPart(dx + 0.055, dy + 0.17, dz, 0.018, 0.16, 0.018, 0, 0, [0.5, 0.54, 0.58, 1], 'gunmetal', 0, 0.8);
         return;
       }
 
-      // Smooth hipfire -> ADS interpolation + recoil kick + reload tilt
-      const reloadDrop = p.reloadTimer > 0 ? Math.sin((p.reloadTimer / wpn.reloadTime) * Math.PI) * 0.18 : 0;
-      const baseX = (0.24 * (1 - p.adsBlend)) + bobX;
-      const baseY = (-0.21 * (1 - p.adsBlend) - 0.135 * p.adsBlend) - bobY - reloadDrop;
-      const baseZ = -0.52 + p.recoilKick * 0.09 + p.adsBlend * 0.08;
-      const tiltX = p.recoilKick * 0.14 - reloadDrop * 1.4;
+      // === 2. TACTICAL COMBAT KNIFE [3] (Screenshot 1 Hero Blade!) ===
+      if (p.activeSlot === 'melee') {
+        const sw = Math.sin(p.knifeSwing * Math.PI);
+        const kx = 0.23 + bobX - sw * 0.28;
+        const ky = -0.20 - bobY + sw * 0.06;
+        const kz = -0.44 - sw * 0.18;
+        const kRotY = -0.28 + sw * 1.15;
+        const kRotX = 0.22 - sw * 0.72;
+        // Gloved right hand & camo forearm gripping knife
+        E.drawViewPart(kx + 0.08, ky - 0.16, kz + 0.16, 0.11, 0.12, 0.28, kRotY, kRotX + 0.2, sleeveCol, 'camo_armor', 0, 0.15);
+        E.drawViewPart(kx + 0.02, ky - 0.07, kz + 0.03, 0.09, 0.11, 0.10, kRotY, kRotX, gloveCol, 'asphalt', 0, 0.38);
+        E.drawViewPart(kx + 0.02, ky - 0.04, kz - 0.01, 0.095, 0.035, 0.06, kRotY, kRotX, knuckleCol, 'gunmetal', 0, 0.55);
+        // Ribbed tactical handle + crossguard
+        E.drawViewPart(kx, ky - 0.04, kz, 0.036, 0.13, 0.046, kRotY, kRotX, [0.18, 0.20, 0.22, 1], 'asphalt', 0, 0.4);
+        E.drawViewPart(kx, ky + 0.03, kz - 0.01, 0.09, 0.02, 0.035, kRotY, kRotX, [0.35, 0.38, 0.40, 1], 'gunmetal', 0, 0.75);
+        // Dark carbon-steel blade + sharpened gleaming silver bevel edge + fuller groove!
+        E.drawViewPart(kx, ky + 0.15, kz - 0.03, 0.016, 0.23, 0.056, kRotY, kRotX, [0.38, 0.44, 0.50, 1], 'gunmetal', 0.04, 0.95);
+        E.drawViewPart(kx - 0.002, ky + 0.15, kz - 0.056, 0.008, 0.22, 0.014, kRotY, kRotX, [0.85, 0.90, 0.95, 1], 'white', 0.12, 1.0);
+        // Spear-point tip
+        E.drawViewPart(kx, ky + 0.28, kz - 0.042, 0.012, 0.06, 0.032, kRotY, kRotX + 0.2, [0.68, 0.74, 0.80, 1], 'gunmetal', 0.08, 0.95);
+        return;
+      }
 
-      const metal = [0.22, 0.25, 0.27, 1];
-      const darkMetal = [0.13, 0.15, 0.16, 1];
-      const wood = wpn.id === 'svd' || wpn.id === 'vss' ? [0.46, 0.28, 0.16, 1] : (wpn.id === 'ak74m' ? [0.34, 0.24, 0.16, 1] : [0.18, 0.2, 0.21, 1]);
+      // === 3. DETAILED FIREARMS WITH GLOVED HANDS & SPECULAR STEEL ===
+      const reloadDrop = p.reloadTimer > 0 ? Math.sin((p.reloadTimer / wpn.reloadTime) * Math.PI) * 0.22 : 0;
+      const bx = (0.24 * (1 - p.adsBlend)) + bobX;
+      const by = (-0.21 * (1 - p.adsBlend) - 0.122 * p.adsBlend) - bobY - reloadDrop;
+      const bz = -0.50 + p.recoilKick * 0.085 + p.adsBlend * 0.09;
+      const tx = p.recoilKick * 0.13 - reloadDrop * 1.3;
+
+      const steel = [0.44, 0.48, 0.52, 1];
+      const darkSteel = [0.26, 0.29, 0.32, 1];
+      const railCol = [0.56, 0.60, 0.64, 1];
+      const wood = (wpn.id === 'svd' || wpn.id === 'vss') ? [0.64, 0.38, 0.22, 1]
+        : (wpn.id === 'ak74m' ? [0.48, 0.32, 0.20, 1] : [0.28, 0.30, 0.32, 1]);
+
+      // Gloved Right Hand + Camo Sleeve
+      E.drawViewPart(bx + 0.05, by - 0.15, bz + 0.24, 0.10, 0.10, 0.24, -0.15, tx + 0.12, sleeveCol, 'camo_armor', 0, 0.18);
+      E.drawViewPart(bx + 0.01, by - 0.07, bz + 0.11, 0.078, 0.09, 0.09, 0, tx, gloveCol, 'asphalt', 0, 0.38);
 
       if (wpn.id === 'pm') {
-        // Makarov Pistol
-        E.drawViewPart(baseX, baseY + 0.04, baseZ, 0.055, 0.065, 0.24, 0, tiltX, metal, 'asphalt');
-        E.drawViewPart(baseX, baseY - 0.04, baseZ + 0.07, 0.048, 0.12, 0.075, 0, tiltX + 0.2, [0.42, 0.22, 0.14, 1], 'wood');
+        // Detailed Makarov Pistol (slide serrations, bakelite brown grip, sight dots)
+        E.drawViewPart(bx, by + 0.045, bz, 0.052, 0.062, 0.26, 0, tx, steel, 'gunmetal', 0.03, 0.85);
+        E.drawViewPart(bx, by + 0.01, bz + 0.01, 0.046, 0.025, 0.22, 0, tx, darkSteel, 'gunmetal', 0, 0.7);
+        E.drawViewPart(bx, by - 0.045, bz + 0.08, 0.048, 0.12, 0.075, 0, tx + 0.22, [0.58, 0.28, 0.16, 1], 'wood', 0, 0.35);
+        // Tritium iron sight dots
+        E.drawViewPart(bx, by + 0.082, bz - 0.11, 0.01, 0.012, 0.012, 0, tx, [0.4, 1.0, 0.45, 1], 'white', 1.4);
       } else {
-        // Rifle/Shotgun Receiver + Stock + Handguard + Magazine + Barrel
-        const barrelLen = wpn.id === 'svd' ? 0.55 : (wpn.id === 'saiga12' ? 0.42 : 0.36);
-        // Receiver
-        E.drawViewPart(baseX, baseY + 0.02, baseZ + 0.05, 0.075, 0.095, 0.34, 0, tiltX, metal, 'asphalt');
-        // Handguard
-        E.drawViewPart(baseX, baseY + 0.015, baseZ - 0.18, 0.068, 0.078, 0.24, 0, tiltX, wood, 'wood');
-        // Barrel
-        E.drawViewPart(baseX, baseY + 0.045, baseZ - 0.25 - barrelLen * 0.35, 0.032, 0.032, barrelLen, 0, tiltX, darkMetal, 'white');
-        // Magazine (taller if Extended Mag)
-        const magH = this.profile.attachmentsEnabled.extMag ? 0.22 : 0.15;
-        E.drawViewPart(baseX, baseY - 0.09, baseZ - 0.03, 0.05, magH, 0.085, 0, tiltX - 0.18, darkMetal, 'asphalt');
-        // Front sight post
-        E.drawViewPart(baseX, baseY + 0.08, baseZ - 0.36, 0.012, 0.045, 0.015, 0, tiltX, darkMetal, 'white');
+        // Left Gloved Support Hand gripping handguard!
+        E.drawViewPart(bx - 0.09, by - 0.11, bz - 0.08, 0.095, 0.095, 0.24, 0.42, tx + 0.18, sleeveCol, 'camo_armor', 0, 0.18);
+        E.drawViewPart(bx - 0.02, by - 0.02, bz - 0.18, 0.082, 0.078, 0.095, 0.1, tx, gloveCol, 'asphalt', 0, 0.38);
+        E.drawViewPart(bx - 0.055, by - 0.01, bz - 0.18, 0.025, 0.05, 0.08, 0, tx, knuckleCol, 'gunmetal', 0, 0.55);
+
+        const barrelLen = wpn.id === 'svd' ? 0.56 : (wpn.id === 'saiga12' ? 0.42 : 0.36);
+        // Stamped Metal Receiver + Ribbed Top Dust Cover + Picatinny Rail
+        E.drawViewPart(bx, by + 0.02, bz + 0.05, 0.074, 0.088, 0.35, 0, tx, steel, 'gunmetal', 0.03, 0.82);
+        E.drawViewPart(bx, by + 0.068, bz + 0.04, 0.054, 0.024, 0.31, 0, tx, darkSteel, 'gunmetal', 0.02, 0.9);
+        E.drawViewPart(bx, by + 0.084, bz + 0.04, 0.036, 0.012, 0.24, 0, tx, railCol, 'gunmetal', 0.04, 0.95);
+        // Side charging handle
+        E.drawViewPart(bx + 0.048, by + 0.045, bz - 0.02, 0.032, 0.018, 0.022, 0, tx, railCol, 'gunmetal', 0.05, 0.95);
+        // Wood / Polymer Handguard & Gas Tube
+        E.drawViewPart(bx, by + 0.015, bz - 0.19, 0.068, 0.072, 0.24, 0, tx, wood, 'wood', 0, 0.32);
+        E.drawViewPart(bx, by + 0.060, bz - 0.19, 0.036, 0.030, 0.22, 0, tx, darkSteel, 'gunmetal', 0.02, 0.78);
+        // Barrel & Front Sight Block
+        E.drawViewPart(bx, by + 0.042, bz - 0.26 - barrelLen * 0.34, 0.030, 0.030, barrelLen, 0, tx, darkSteel, 'gunmetal', 0.02, 0.88);
+        E.drawViewPart(bx, by + 0.078, bz - 0.36, 0.014, 0.046, 0.020, 0, tx, darkSteel, 'gunmetal', 0, 0.7);
+        // Pistol Grip & Curved Magazine
+        E.drawViewPart(bx, by - 0.07, bz + 0.13, 0.046, 0.12, 0.062, 0, tx + 0.26, wood, 'wood', 0, 0.25);
+        const magH = this.profile.attachmentsEnabled.extMag ? 0.23 : 0.155;
+        E.drawViewPart(bx, by - 0.085, bz - 0.035, 0.048, magH, 0.082, 0, tx - 0.20, wpn.id === 'ak74m' ? [0.56, 0.30, 0.18, 1] : darkSteel, 'gunmetal', 0, 0.45);
       }
 
-      // Attachments rendered directly on 3D weapon!
+      // === ATTACHMENTS: SUPPRESSOR, TRANSLUCENT EOTECH HOLO COLLIMATOR, LASER ===
       if (wpn.suppressed) {
-        E.drawViewPart(baseX, baseY + 0.045, baseZ - 0.56, 0.048, 0.048, 0.24, 0, tiltX, [0.12, 0.14, 0.15, 1], 'concrete');
+        E.drawViewPart(bx, by + 0.042, bz - 0.56, 0.052, 0.052, 0.26, 0, tx, [0.24, 0.26, 0.28, 1], 'gunmetal', 0.02, 0.75);
       }
       if (wpn.hasOptic) {
-        E.drawViewPart(baseX, baseY + 0.095, baseZ + 0.04, 0.052, 0.052, 0.14, 0, tiltX, darkMetal, 'white');
-        // Glowing red collimator dot!
-        E.drawViewPart(baseX, baseY + 0.098, baseZ + 0.04, 0.01, 0.01, 0.01, 0, 0, [1.0, 0.22, 0.18, 1], 'white', 2.0);
+        // Real open-frame EOTech holographic sight housing (Screenshot 2 bottom-right!)
+        E.drawViewPart(bx, by + 0.095, bz + 0.04, 0.056, 0.018, 0.12, 0, tx, darkSteel, 'gunmetal', 0, 0.75); // Base
+        E.drawViewPart(bx - 0.026, by + 0.122, bz + 0.04, 0.008, 0.048, 0.075, 0, tx, darkSteel, 'gunmetal', 0, 0.8); // Left wall
+        E.drawViewPart(bx + 0.026, by + 0.122, bz + 0.04, 0.008, 0.048, 0.075, 0, tx, darkSteel, 'gunmetal', 0, 0.8); // Right wall
+        E.drawViewPart(bx, by + 0.146, bz + 0.04, 0.060, 0.008, 0.078, 0, tx, darkSteel, 'gunmetal', 0, 0.85);       // Hood top
+        // Translucent tinted glass lens + crisp glowing holographic red reticle!
+        E.drawViewPart(bx, by + 0.122, bz + 0.04, 0.044, 0.040, 0.005, 0, tx, [0.4, 0.75, 0.78, 0.24], 'white', 0.2, 0.9, false);
+        E.drawViewPart(bx, by + 0.122, bz + 0.036, 0.007, 0.007, 0.004, 0, tx, [1.0, 0.18, 0.14, 0.95], 'white', 2.8, 0, false);
       }
       if (wpn.hasLaser) {
-        E.drawViewPart(baseX + 0.046, baseY + 0.02, baseZ - 0.18, 0.025, 0.025, 0.09, 0, tiltX, [0.16, 0.18, 0.18, 1], 'white');
-        E.drawViewPart(baseX + 0.046, baseY + 0.02, baseZ - 1.8, 0.006, 0.006, 3.2, 0, tiltX, [0.2, 1.0, 0.35, 0.55], 'white', 1.8);
+        E.drawViewPart(bx + 0.046, by + 0.02, bz - 0.18, 0.026, 0.026, 0.09, 0, tx, darkSteel, 'gunmetal', 0, 0.7);
+        E.drawViewPart(bx + 0.046, by + 0.02, bz - 1.9, 0.006, 0.006, 3.4, 0, tx, [0.22, 1.0, 0.36, 0.58], 'white', 2.0, 0, false);
       }
-      if (p.muzzleFlash > 0.15) {
-        const ms = 0.08 + p.muzzleFlash * 0.1;
-        E.drawViewPart(baseX, baseY + 0.045, baseZ - (wpn.suppressed ? 0.72 : 0.56), ms, ms, ms, p.bobPhase * 5, 0, [1.0, 0.78, 0.25, 0.9], 'white', 2.2);
+
+      // Fiery multi-layer Muzzle Flame Cone (Screenshot 2 vibe!)
+      if (p.muzzleFlash > 0.12) {
+        const mz = bz - (wpn.suppressed ? 0.73 : 0.56);
+        const s = (0.09 + p.muzzleFlash * 0.13) * (wpn.suppressed ? 0.55 : 1.0);
+        E.drawViewPart(bx, by + 0.042, mz, s * 1.4, s * 1.4, s * 1.9, nowSec * 40, 0, [1.0, 0.56, 0.12, 0.85], 'white', 2.6, 0, false);
+        E.drawViewPart(bx, by + 0.042, mz - 0.04, s * 0.8, s * 0.8, s * 2.4, -nowSec * 30, 0, [1.0, 0.95, 0.55, 0.95], 'white', 3.0, 0, false);
       }
     }
 
     loop(now) {
       const dt = Math.min(0.05, (now - this.lastTime) * 0.001);
+      const nowSec = now * 0.001;
       this.lastTime = now;
 
       if (this.started && !this.ui.openModal && !this.player.dead) {
@@ -753,13 +714,9 @@
         this._updatePlayer(dt);
         this.entities.update(dt, this.player, this);
         this.autosaveTimer -= dt;
-        if (this.autosaveTimer <= 0) {
-          this.autosaveTimer = 18;
-          this.save();
-        }
+        if (this.autosaveTimer <= 0) { this.autosaveTimer = 18; this.save(); }
       }
 
-      // Always keep atmosphere & world rendered smoothly (even behind start screen!)
       this.world.updateAtmosphere(dt, this.entities.emission);
 
       const p = this.player;
@@ -770,18 +727,19 @@
       const shakeX = (Math.random() - 0.5) * p.shake;
       const shakeY = (Math.random() - 0.5) * p.shake;
 
-      const camYaw = this.started ? p.yaw + shakeX : (now * 0.00018);
-      const camPitch = this.started ? p.pitch + shakeY : -0.1;
-      const camX = this.started ? p.x : Math.sin(now * 0.00018) * 14;
+      // Cinematic orbit over the glowing Bar campfire & truck behind the Start overlay!
+      const camYaw = this.started ? p.yaw + shakeX : (nowSec * 0.16);
+      const camPitch = this.started ? p.pitch + shakeY : -0.14;
+      const camX = this.started ? p.x : 4.6 + Math.sin(nowSec * 0.16) * 11;
       const camY = this.started ? (p.y + eyeH) : 3.2;
-      const camZ = this.started ? p.z : Math.cos(now * 0.00018) * 14;
+      const camZ = this.started ? p.z : 2.2 + Math.cos(nowSec * 0.16) * 11;
 
       const lights = this.entities.getDynamicPointLights(p, p.muzzleFlash);
-      this.engine.beginFrame(camX, camY, camZ, camYaw, camPitch, fov, lights);
-      this.entities.renderAll(now * 0.001);
+      this.engine.beginFrame(camX, camY, camZ, camYaw, camPitch, fov, lights, nowSec);
+      this.entities.renderAll(nowSec, p);
 
       if (this.started && !p.dead) {
-        this._renderViewmodel(fov);
+        this._renderViewmodel(fov, nowSec);
         this.ui.updateHUD(dt);
       }
 
